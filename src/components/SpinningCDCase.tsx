@@ -60,6 +60,9 @@ export function SpinningCDCase({
   const targetRotationValue = useRef(0);
   const lastInteractionTime = useRef(Date.now());
   const isResumingFromIdle = useRef(false);
+  const navigationLanded = useRef(false);
+  const hoverWaitingForSettle = useRef(false);
+  const navigationStartTime = useRef(0);
 
   const sceneRef = useRef<{
     scene: THREE.Scene;
@@ -104,8 +107,17 @@ export function SpinningCDCase({
     source.start();
   }, []);
 
+  const pendingNavigationIndex = useRef<number | null>(null);
+
   const navigateToAlbum = useCallback((targetIndex: number) => {
-    if (isOpen || !sceneRef.current) return;
+    if (!sceneRef.current) return;
+
+    // If open, close first and queue the navigation
+    if (isOpen) {
+      pendingNavigationIndex.current = targetIndex;
+      handleClose();
+      return;
+    }
 
     const len = albums.length;
     const currentIdx = ((imageIndex.current % len) + len) % len;
@@ -131,6 +143,15 @@ export function SpinningCDCase({
     lastInteractionTime.current = Date.now();
     isResumingFromIdle.current = false;
 
+    // Reset all ajar/tilt state when navigating
+    ajarProgress.current = 0;
+    targetAjarProgress.current = 0;
+    tiltUpProgress.current = 0;
+    targetTiltUpProgress.current = 0;
+    ajarSoundPlayed.current = false;
+    navigationLanded.current = false;
+    hoverStraightenStarted.current = false;
+
     const { discMaterials, textures } = sceneRef.current;
     discMaterials.forEach((mat) => {
       mat.map = textures[targetIndex];
@@ -148,13 +169,13 @@ export function SpinningCDCase({
       targetStraightenProgress.current = 0;
     }
 
-    const targetRot = Math.round((rotation.current + 720) / 360) * 360;
+    const targetRot = Math.round((rotation.current + 360) / 360) * 360;
 
     isNavigating.current = true;
     targetRotationValue.current = targetRot;
     const direction = targetRot >= rotation.current ? 1 : -1;
-    velocity.current = direction * 15;
-  }, [albums.length, isOpen]);
+    velocity.current = direction * 8;
+  }, [albums.length, isOpen, handleClose]);
 
   useEffect(() => {
     if (!containerRef.current || albums.length === 0) return;
@@ -541,6 +562,45 @@ export function SpinningCDCase({
         openProgress.current = targetOpenProgress.current;
       }
 
+      // Handle pending navigation after close animation completes
+      if (pendingNavigationIndex.current !== null && openProgress.current < 0.05) {
+        const targetIndex = pendingNavigationIndex.current;
+        pendingNavigationIndex.current = null;
+
+        // Snap lid fully closed and reset all ajar/tilt state
+        openProgress.current = 0;
+        targetOpenProgress.current = 0;
+        ajarProgress.current = 0;
+        targetAjarProgress.current = 0;
+        tiltUpProgress.current = 0;
+        targetTiltUpProgress.current = 0;
+        ajarSoundPlayed.current = false;
+        navigationLanded.current = false;
+        hoverStraightenStarted.current = false;
+
+        const { discMaterials, textures } = sceneRef.current!;
+        discMaterials.forEach((mat) => {
+          mat.map = textures[targetIndex];
+          mat.needsUpdate = true;
+        });
+
+        imageIndex.current = targetIndex;
+        lastZone.current = Math.floor((rotation.current + 90) / 180);
+        setCurrentAlbumIndex(targetIndex);
+
+        // Reset rotation state
+        rotation.current = 0;
+        savedRotation.current = 0;
+        straightenProgress.current = 0;
+        targetStraightenProgress.current = 0;
+
+        const targetRot = 360;
+        isNavigating.current = true;
+        targetRotationValue.current = targetRot;
+        velocity.current = 8;
+        lastInteractionTime.current = Date.now();
+      }
+
       // Animate straighten
       const straightenDiff =
         targetStraightenProgress.current - straightenProgress.current;
@@ -574,24 +634,23 @@ export function SpinningCDCase({
         tiltUpProgress.current = targetTiltUpProgress.current;
       }
 
-      // Trigger tilt-up when straightened and velocity near zero
+      // Trigger tilt-up simultaneously with straightening (for hover)
       if (
         hoverStraightenStarted.current &&
         !isDragging.current &&
         openProgress.current < 0.01 &&
-        straightenProgress.current > 0.95 &&
-        Math.abs(velocity.current) < 0.15 &&
         targetTiltUpProgress.current < 0.5
       ) {
         targetTiltUpProgress.current = 1;
       }
 
-      // Trigger ajar (with pop) when tilt-up is complete
+      // Trigger ajar (with pop) when straightened and velocity near zero (hover or navigation)
       if (
-        hoverStraightenStarted.current &&
+        (hoverStraightenStarted.current || navigationLanded.current) &&
         !isDragging.current &&
         openProgress.current < 0.01 &&
-        tiltUpProgress.current > 0.9 &&
+        straightenProgress.current > 0.95 &&
+        Math.abs(velocity.current) < 0.15 &&
         targetAjarProgress.current < 0.5
       ) {
         targetAjarProgress.current = 1;
@@ -609,7 +668,7 @@ export function SpinningCDCase({
       // Apply hinge rotation to front cover
       if (frontCover) {
         const openAngle = -openProgress.current * Math.PI;
-        const ajarAngle = -ajarProgress.current * 0.15;
+        const ajarAngle = -ajarProgress.current * 0.35;
         frontCover.rotation.y = openAngle + ajarAngle;
       }
 
@@ -619,27 +678,32 @@ export function SpinningCDCase({
       model.scale.set(finalScale, finalScale, finalScale);
       model.position.x = openProgress.current * 65;
 
+      // Left tilt as part of straighten/tilt-up (left side away, right side toward user)
+      const leftTiltAngle = openProgress.current < 0.5 ? -tiltUpProgress.current * 0.55 : 0;
       const bookTiltZ = 0;
 
-      // Tilt up slightly when hovering
-      const tiltUpAngle = openProgress.current < 0.5 ? -tiltUpProgress.current * 0.12 : 0;
+      // Tilt up when hovering (more pronounced)
+      const tiltUpAngle = openProgress.current < 0.5 ? -tiltUpProgress.current * 0.22 : 0;
       const bookTiltX = tiltUpAngle;
 
       const currentTilt = tilt * (1 - straightenProgress.current);
 
-      // Handle velocity and rotation
-      if (straightenProgress.current < 0.01) {
+      // Handle velocity and rotation (but not while waiting for lid to close)
+      if (straightenProgress.current < 0.01 && pendingNavigationIndex.current === null) {
         if (!isDragging.current) {
           if (isNavigating.current) {
             const targetRot = targetRotationValue.current;
             const rotDiff = targetRot - rotation.current;
 
             if (Math.abs(rotDiff) < 10) {
-              rotation.current = 0;
-              savedRotation.current = 0;
+              // Don't snap - let straightening handle the smooth transition to front-facing
+              savedRotation.current = rotation.current;
               velocity.current = 0;
               isNavigating.current = false;
               targetStraightenProgress.current = 1;
+              targetTiltUpProgress.current = 1;
+              navigationLanded.current = true;
+              ajarSoundPlayed.current = false;
               lastInteractionTime.current = Date.now();
               lastZone.current = 0;
             } else {
@@ -659,6 +723,31 @@ export function SpinningCDCase({
               velocity.current = autoSpinSpeed;
               isResumingFromIdle.current = false;
               lastZone.current = Math.floor((rotation.current + 90) / 180);
+            }
+          } else if (hoverWaitingForSettle.current) {
+            rotation.current += velocity.current;
+            velocity.current *= 0.92;
+
+            const currentZone = Math.floor((rotation.current + 90) / 180);
+            if (currentZone !== lastZone.current) {
+              const direction = currentZone > lastZone.current ? 1 : -1;
+              imageIndex.current += direction;
+
+              const len = textures.length;
+              const texIdx = ((imageIndex.current % len) + len) % len;
+
+              lastZone.current = currentZone;
+              discMaterials.forEach((mat) => {
+                mat.map = textures[texIdx];
+                mat.needsUpdate = true;
+              });
+              setCurrentAlbumIndex(texIdx);
+            }
+
+            if (Math.abs(velocity.current) < 1) {
+              hoverWaitingForSettle.current = false;
+              targetStraightenProgress.current = 1;
+              hoverStraightenStarted.current = true;
             }
           } else {
             rotation.current += velocity.current;
@@ -690,7 +779,7 @@ export function SpinningCDCase({
 
         savedRotation.current = rotation.current;
 
-        const rotRad = (rotation.current * Math.PI) / 180;
+        const rotRad = (rotation.current * Math.PI) / 180 + leftTiltAngle;
         const tiltRad = (currentTilt * Math.PI) / 180;
         model.rotation.set(bookTiltX, rotRad, tiltRad - bookTiltZ);
       } else {
@@ -700,12 +789,17 @@ export function SpinningCDCase({
           rotation.current += velocity.current;
         }
 
-        // Check for idle timeout
+        // Check for idle timeout (4 seconds for navigation, 5 seconds for hover)
         const now = Date.now();
-        if (now - lastInteractionTime.current > 5000 && openProgress.current < 0.01 && !hoverStraightenStarted.current) {
+        const idleTimeout = navigationLanded.current ? 4000 : 5000;
+        if (now - lastInteractionTime.current > idleTimeout && openProgress.current < 0.01 && !hoverStraightenStarted.current) {
           rotation.current = 0;
           savedRotation.current = 0;
           targetStraightenProgress.current = 0;
+          targetTiltUpProgress.current = 0;
+          targetAjarProgress.current = 0;
+          ajarSoundPlayed.current = false;
+          navigationLanded.current = false;
           velocity.current = 0;
           isResumingFromIdle.current = true;
         }
@@ -716,7 +810,7 @@ export function SpinningCDCase({
         const nearestFront = Math.round(savedRotation.current / 180) * 180;
         const currentRotation =
           savedRotation.current + (nearestFront - savedRotation.current) * straightenProgress.current;
-        const rotRad = (currentRotation * Math.PI) / 180;
+        const rotRad = (currentRotation * Math.PI) / 180 + leftTiltAngle;
         const tiltRad = (currentTilt * Math.PI) / 180;
         model.rotation.set(bookTiltX, rotRad, tiltRad - bookTiltZ);
       }
@@ -790,7 +884,8 @@ export function SpinningCDCase({
     }
     rotation.current += deltaX * sensitivity;
     startX.current = e.clientX;
-    velocity.current = deltaX * sensitivity;
+    const maxVelocity = 25;
+    velocity.current = Math.max(-maxVelocity, Math.min(maxVelocity, deltaX * sensitivity));
     lastInteractionTime.current = Date.now();
     isNavigating.current = false;
   };
@@ -803,8 +898,12 @@ export function SpinningCDCase({
     }
 
     if (isHovering && !isOpen) {
-      targetStraightenProgress.current = 1;
-      hoverStraightenStarted.current = true;
+      if (Math.abs(velocity.current) > 1) {
+        hoverWaitingForSettle.current = true;
+      } else {
+        targetStraightenProgress.current = 1;
+        hoverStraightenStarted.current = true;
+      }
     }
   };
 
@@ -813,13 +912,17 @@ export function SpinningCDCase({
     pointerIdRef.current = null;
 
     if (isHovering && !isOpen) {
-      targetStraightenProgress.current = 1;
-      hoverStraightenStarted.current = true;
+      if (Math.abs(velocity.current) > 1) {
+        hoverWaitingForSettle.current = true;
+      } else {
+        targetStraightenProgress.current = 1;
+        hoverStraightenStarted.current = true;
+      }
     }
   };
 
   const handleHover = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (isOpen) return;
+    if (isOpen || isNavigating.current) return;
 
     const rect = e.currentTarget.getBoundingClientRect();
     const mouse = new THREE.Vector2(
@@ -844,15 +947,20 @@ export function SpinningCDCase({
       setIsHovering(hit);
 
       if (hit && !wasHovering && !isDragging.current) {
-        targetStraightenProgress.current = 1;
-        hoverStraightenStarted.current = true;
+        if (Math.abs(velocity.current) > 1) {
+          hoverWaitingForSettle.current = true;
+        } else {
+          targetStraightenProgress.current = 1;
+          hoverStraightenStarted.current = true;
+        }
       } else if (!hit && wasHovering && !isDragging.current) {
+        hoverWaitingForSettle.current = false;
         if (straightenProgress.current > 0.1) {
           const nearestFront = Math.round(rotation.current / 180) * 180;
           rotation.current = nearestFront;
           savedRotation.current = nearestFront;
-          lastZone.current = Math.floor((nearestFront + 90) / 180);
         }
+        lastZone.current = Math.floor((rotation.current + 90) / 180);
         targetStraightenProgress.current = 0;
         targetAjarProgress.current = 0;
         targetTiltUpProgress.current = 0;
@@ -864,14 +972,19 @@ export function SpinningCDCase({
   };
 
   const handlePointerLeave = () => {
+    if (isDragging.current) {
+      isDragging.current = false;
+      pointerIdRef.current = null;
+    }
     setIsHovering(false);
+    hoverWaitingForSettle.current = false;
     if (!isOpen) {
       if (straightenProgress.current > 0.1) {
         const nearestFront = Math.round(rotation.current / 180) * 180;
         rotation.current = nearestFront;
         savedRotation.current = nearestFront;
-        lastZone.current = Math.floor((nearestFront + 90) / 180);
       }
+      lastZone.current = Math.floor((rotation.current + 90) / 180);
       targetStraightenProgress.current = 0;
       targetAjarProgress.current = 0;
       targetTiltUpProgress.current = 0;
@@ -992,9 +1105,9 @@ export function SpinningCDCase({
           transform: "translateX(-50%)",
           display: "flex",
           gap: 8,
-          opacity: isOpen ? 0 : 1,
+          opacity: isOpen ? 0.5 : 1,
           transition: "opacity 0.2s ease",
-          pointerEvents: isOpen ? "none" : "auto",
+          pointerEvents: "auto",
         }}
       >
         {albums.map((_, index) => (
