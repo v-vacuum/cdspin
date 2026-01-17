@@ -72,7 +72,24 @@ export function SpinningCDCase({
 
     const len = albums.length;
     const currentIdx = ((imageIndex.current % len) + len) % len;
-    if (targetIndex === currentIdx && !isNavigating.current) return;
+    if (targetIndex === currentIdx && !isNavigating.current) {
+      if (straightenProgress.current < 0.01) {
+        const normalizedRotation = ((rotation.current % 360) + 360) % 360;
+        let targetRot;
+        if (normalizedRotation <= 180) {
+          targetRot = rotation.current - normalizedRotation;
+        } else {
+          targetRot = rotation.current + (360 - normalizedRotation);
+        }
+
+        isNavigating.current = true;
+        targetRotationValue.current = targetRot;
+        const direction = targetRot >= rotation.current ? 1 : -1;
+        velocity.current = direction * 8;
+        lastInteractionTime.current = Date.now();
+      }
+      return;
+    }
 
     lastInteractionTime.current = Date.now();
     isResumingFromIdle.current = false;
@@ -566,7 +583,9 @@ export function SpinningCDCase({
               lastZone.current = 0;
             } else {
               velocity.current *= 0.96;
-              if (velocity.current < 2) velocity.current = 2;
+              if (Math.abs(velocity.current) < 2) {
+                velocity.current = velocity.current >= 0 ? 2 : -2;
+              }
               rotation.current += velocity.current;
             }
           } else if (isResumingFromIdle.current) {
