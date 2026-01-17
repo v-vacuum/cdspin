@@ -860,40 +860,41 @@ export function SpinningCDCase({
         onPointerLeave={handlePointerLeave}
         onClick={isOpen ? handleContainerClick : handleClick}
       />
-      {!isOpen && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: 24,
-            left: "50%",
-            transform: "translateX(-50%)",
-            display: "flex",
-            gap: 8,
-          }}
-        >
-          {albums.map((_, index) => (
-            <button
-              key={index}
-              onClick={() => navigateToAlbum(index)}
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: "50%",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                transition: "all 0.2s ease",
-                background: currentAlbumIndex === index ? "#666" : "#fff",
-                boxShadow:
-                  currentAlbumIndex === index
-                    ? "none"
-                    : "inset 0 0 0 1px #999",
-              }}
-              aria-label={`Go to album ${index + 1}`}
-            />
-          ))}
-        </div>
-      )}
+      <div
+        style={{
+          position: "absolute",
+          bottom: 24,
+          left: "50%",
+          transform: "translateX(-50%)",
+          display: "flex",
+          gap: 8,
+          opacity: isOpen ? 0 : 1,
+          transition: "opacity 0.2s ease",
+          pointerEvents: isOpen ? "none" : "auto",
+        }}
+      >
+        {albums.map((_, index) => (
+          <button
+            key={index}
+            onClick={() => navigateToAlbum(index)}
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+              background: currentAlbumIndex === index ? "#666" : "#fff",
+              boxShadow:
+                currentAlbumIndex === index
+                  ? "none"
+                  : "inset 0 0 0 1px #999",
+            }}
+            aria-label={`Go to album ${index + 1}`}
+          />
+        ))}
+      </div>
       {isOpen && (
         <>
           <div
