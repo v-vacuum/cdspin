@@ -111,9 +111,12 @@ export function SpinningCDCase({
       targetStraightenProgress.current = 0;
     }
 
+    const targetRot = Math.round((rotation.current + 720) / 360) * 360;
+
     isNavigating.current = true;
-    targetRotationValue.current = rotation.current + 720;
-    velocity.current = 15;
+    targetRotationValue.current = targetRot;
+    const direction = targetRot >= rotation.current ? 1 : -1;
+    velocity.current = direction * 15;
   }, [albums.length, isOpen]);
 
   useEffect(() => {
