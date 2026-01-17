@@ -62,7 +62,6 @@ export function SpinningCDCase({
   const isResumingFromIdle = useRef(false);
   const navigationLanded = useRef(false);
   const hoverWaitingForSettle = useRef(false);
-  const navigationStartTime = useRef(0);
 
   const sceneRef = useRef<{
     scene: THREE.Scene;
@@ -159,9 +158,9 @@ export function SpinningCDCase({
 
       const { discMaterials, textures } = sceneRef.current;
       discMaterials.forEach((mat) => {
-        if ((mat as THREE.ShaderMaterial).uniforms?.map) {
-          (mat as THREE.ShaderMaterial).uniforms.map.value =
-            textures[targetIndex];
+        const shaderMat = mat as unknown as THREE.ShaderMaterial;
+        if (shaderMat.uniforms?.map) {
+          shaderMat.uniforms.map.value = textures[targetIndex];
         } else {
           mat.map = textures[targetIndex];
           mat.needsUpdate = true;
@@ -692,9 +691,9 @@ export function SpinningCDCase({
 
         const { discMaterials, textures } = sceneRef.current!;
         discMaterials.forEach((mat) => {
-          if ((mat as THREE.ShaderMaterial).uniforms?.map) {
-            (mat as THREE.ShaderMaterial).uniforms.map.value =
-              textures[targetIndex];
+          const shaderMat = mat as unknown as THREE.ShaderMaterial;
+          if (shaderMat.uniforms?.map) {
+            shaderMat.uniforms.map.value = textures[targetIndex];
           } else {
             mat.map = textures[targetIndex];
             mat.needsUpdate = true;
@@ -860,9 +859,9 @@ export function SpinningCDCase({
 
               lastZone.current = currentZone;
               discMaterials.forEach((mat) => {
-                if ((mat as THREE.ShaderMaterial).uniforms?.map) {
-                  (mat as THREE.ShaderMaterial).uniforms.map.value =
-                    textures[texIdx];
+                const shaderMat = mat as unknown as THREE.ShaderMaterial;
+                if (shaderMat.uniforms?.map) {
+                  shaderMat.uniforms.map.value = textures[texIdx];
                 } else {
                   mat.map = textures[texIdx];
                   mat.needsUpdate = true;
@@ -896,9 +895,9 @@ export function SpinningCDCase({
 
               lastZone.current = currentZone;
               discMaterials.forEach((mat) => {
-                if ((mat as THREE.ShaderMaterial).uniforms?.map) {
-                  (mat as THREE.ShaderMaterial).uniforms.map.value =
-                    textures[texIdx];
+                const shaderMat = mat as unknown as THREE.ShaderMaterial;
+                if (shaderMat.uniforms?.map) {
+                  shaderMat.uniforms.map.value = textures[texIdx];
                 } else {
                   mat.map = textures[texIdx];
                   mat.needsUpdate = true;
@@ -958,8 +957,9 @@ export function SpinningCDCase({
       if (sceneRef.current) {
         const time = Date.now() * 0.001;
         sceneRef.current.discMaterials.forEach((mat) => {
-          if ((mat as THREE.ShaderMaterial).uniforms?.time) {
-            (mat as THREE.ShaderMaterial).uniforms.time.value = time;
+          const shaderMat = mat as unknown as THREE.ShaderMaterial;
+          if (shaderMat.uniforms?.time) {
+            shaderMat.uniforms.time.value = time;
           }
         });
       }
