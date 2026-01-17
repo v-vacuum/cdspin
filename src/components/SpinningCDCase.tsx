@@ -5,6 +5,10 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 interface Album {
   image: string;
   name: string;
+  artist?: string;
+  year?: string | number;
+  genre?: string;
+  note?: string;
 }
 
 interface SpinningCDCaseProps {
@@ -28,7 +32,7 @@ export function SpinningCDCase({
   const [isOpen, setIsOpen] = useState(false);
   const [currentAlbumIndex, setCurrentAlbumIndex] = useState(0);
   const [isHovering, setIsHovering] = useState(false);
-  const [isDarkBackground, setIsDarkBackground] = useState(false);
+  const isDarkBackground = false;
 
   const rotation = useRef(0);
   const savedRotation = useRef(0);
@@ -766,20 +770,49 @@ export function SpinningCDCase({
       />
       {isOpen && (
         <>
+          <style>
+            {`
+              @keyframes fadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+              }
+            `}
+          </style>
           <div
             style={{
               position: "absolute",
-              left: 24,
+              left: 74,
               top: "50%",
               transform: "translateY(-50%)",
               color: isDarkBackground ? "#fff" : "#333",
-              fontSize: 24,
-              fontWeight: 600,
-              maxWidth: 150,
+              maxWidth: 200,
               textAlign: "left",
+              display: "flex",
+              flexDirection: "column",
+              gap: 4,
+              animation: "fadeIn 0.4s ease-out 0.15s both",
             }}
           >
-            {albums[currentAlbumIndex]?.name}
+            <div style={{ fontSize: 24, fontWeight: 600 }}>
+              {albums[currentAlbumIndex]?.name}
+            </div>
+            {albums[currentAlbumIndex]?.artist && (
+              <div style={{ fontSize: 18 }}>
+                {albums[currentAlbumIndex].artist}
+              </div>
+            )}
+            {albums[currentAlbumIndex]?.note && (
+              <div
+                style={{
+                  fontSize: 14,
+                  fontStyle: "italic",
+                  opacity: 0.8,
+                  marginTop: 8,
+                }}
+              >
+                "{albums[currentAlbumIndex].note}"
+              </div>
+            )}
           </div>
           <button
             onClick={handleClose}
