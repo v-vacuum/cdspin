@@ -86,7 +86,11 @@ export function SpinningCDCase({
     const audioContext = new AudioContext();
 
     const bufferSize = audioContext.sampleRate * 0.04;
-    const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+    const buffer = audioContext.createBuffer(
+      1,
+      bufferSize,
+      audioContext.sampleRate,
+    );
     const data = buffer.getChannelData(0);
 
     for (let i = 0; i < bufferSize; i++) {
@@ -109,77 +113,81 @@ export function SpinningCDCase({
 
   const pendingNavigationIndex = useRef<number | null>(null);
 
-  const navigateToAlbum = useCallback((targetIndex: number) => {
-    if (!sceneRef.current) return;
+  const navigateToAlbum = useCallback(
+    (targetIndex: number) => {
+      if (!sceneRef.current) return;
 
-    // If open, close first and queue the navigation
-    if (isOpen) {
-      pendingNavigationIndex.current = targetIndex;
-      handleClose();
-      return;
-    }
+      // If open, close first and queue the navigation
+      if (isOpen) {
+        pendingNavigationIndex.current = targetIndex;
+        handleClose();
+        return;
+      }
 
-    const len = albums.length;
-    const currentIdx = ((imageIndex.current % len) + len) % len;
-    if (targetIndex === currentIdx && !isNavigating.current) {
-      if (straightenProgress.current < 0.01) {
-        const normalizedRotation = ((rotation.current % 360) + 360) % 360;
-        let targetRot;
-        if (normalizedRotation <= 180) {
-          targetRot = rotation.current - normalizedRotation;
-        } else {
-          targetRot = rotation.current + (360 - normalizedRotation);
+      const len = albums.length;
+      const currentIdx = ((imageIndex.current % len) + len) % len;
+      if (targetIndex === currentIdx && !isNavigating.current) {
+        if (straightenProgress.current < 0.01) {
+          const normalizedRotation = ((rotation.current % 360) + 360) % 360;
+          let targetRot;
+          if (normalizedRotation <= 180) {
+            targetRot = rotation.current - normalizedRotation;
+          } else {
+            targetRot = rotation.current + (360 - normalizedRotation);
+          }
+
+          isNavigating.current = true;
+          targetRotationValue.current = targetRot;
+          const direction = targetRot >= rotation.current ? 1 : -1;
+          velocity.current = direction * 8;
+          lastInteractionTime.current = Date.now();
         }
-
-        isNavigating.current = true;
-        targetRotationValue.current = targetRot;
-        const direction = targetRot >= rotation.current ? 1 : -1;
-        velocity.current = direction * 8;
-        lastInteractionTime.current = Date.now();
+        return;
       }
-      return;
-    }
 
-    lastInteractionTime.current = Date.now();
-    isResumingFromIdle.current = false;
+      lastInteractionTime.current = Date.now();
+      isResumingFromIdle.current = false;
 
-    // Reset all ajar/tilt state when navigating
-    ajarProgress.current = 0;
-    targetAjarProgress.current = 0;
-    tiltUpProgress.current = 0;
-    targetTiltUpProgress.current = 0;
-    ajarSoundPlayed.current = false;
-    navigationLanded.current = false;
-    hoverStraightenStarted.current = false;
+      // Reset all ajar/tilt state when navigating
+      ajarProgress.current = 0;
+      targetAjarProgress.current = 0;
+      tiltUpProgress.current = 0;
+      targetTiltUpProgress.current = 0;
+      ajarSoundPlayed.current = false;
+      navigationLanded.current = false;
+      hoverStraightenStarted.current = false;
 
-    const { discMaterials, textures } = sceneRef.current;
-    discMaterials.forEach((mat) => {
-      if ((mat as THREE.ShaderMaterial).uniforms?.map) {
-        (mat as THREE.ShaderMaterial).uniforms.map.value = textures[targetIndex];
-      } else {
-        mat.map = textures[targetIndex];
-        mat.needsUpdate = true;
+      const { discMaterials, textures } = sceneRef.current;
+      discMaterials.forEach((mat) => {
+        if ((mat as THREE.ShaderMaterial).uniforms?.map) {
+          (mat as THREE.ShaderMaterial).uniforms.map.value =
+            textures[targetIndex];
+        } else {
+          mat.map = textures[targetIndex];
+          mat.needsUpdate = true;
+        }
+      });
+
+      imageIndex.current = targetIndex;
+      lastZone.current = Math.floor((rotation.current + 90) / 180);
+      setCurrentAlbumIndex(targetIndex);
+
+      if (straightenProgress.current > 0.01) {
+        rotation.current = 0;
+        savedRotation.current = 0;
+        straightenProgress.current = 0;
+        targetStraightenProgress.current = 0;
       }
-    });
 
-    imageIndex.current = targetIndex;
-    lastZone.current = Math.floor((rotation.current + 90) / 180);
-    setCurrentAlbumIndex(targetIndex);
+      const targetRot = Math.round((rotation.current + 360) / 360) * 360;
 
-    if (straightenProgress.current > 0.01) {
-      rotation.current = 0;
-      savedRotation.current = 0;
-      straightenProgress.current = 0;
-      targetStraightenProgress.current = 0;
-    }
-
-    const targetRot = Math.round((rotation.current + 360) / 360) * 360;
-
-    isNavigating.current = true;
-    targetRotationValue.current = targetRot;
-    const direction = targetRot >= rotation.current ? 1 : -1;
-    velocity.current = direction * 8;
-  }, [albums.length, isOpen, handleClose]);
+      isNavigating.current = true;
+      targetRotationValue.current = targetRot;
+      const direction = targetRot >= rotation.current ? 1 : -1;
+      velocity.current = direction * 8;
+    },
+    [albums.length, isOpen, handleClose],
+  );
 
   useEffect(() => {
     if (!containerRef.current || albums.length === 0) return;
@@ -415,33 +423,54 @@ export function SpinningCDCase({
             void main() {
               vec4 texColor = texture2D(map, vUv);
 
-              // Calculate view direction
               vec3 viewDir = normalize(vViewPosition);
-
-              // Use view direction to shift hue - creates rainbow when rotating
               float viewAngle = atan(viewDir.x, viewDir.z);
-
-              // Fresnel for glancing angle enhancement
               float fresnel = pow(1.0 - abs(dot(vNormal, viewDir)), 3.0);
 
-              // Rainbow as concentric bands radiating from center
               vec2 centeredUv = vUv - 0.5;
               float radius = length(centeredUv);
+              float angle = atan(centeredUv.y, centeredUv.x);
+
               float hue = fract(radius * 4.0 + viewAngle * 0.3);
               vec3 rainbow = hsv2rgb(vec3(hue, 0.7, 1.0));
 
-              // Subtle iridescence - reduced strength
               float iridescenceStrength = fresnel * 0.25;
 
-              // Brighten the base texture
               vec3 brightTexColor = texColor.rgb * 1.3;
 
-              // Mix brightened texture with rainbow
               vec3 finalColor = mix(brightTexColor, rainbow, iridescenceStrength);
 
-              // Add white specular highlight - reduced
               float sheen = pow(max(dot(reflect(-viewDir, vNormal), vec3(0.0, 0.0, 1.0)), 0.0), 16.0);
               finalColor += vec3(1.0) * sheen * 0.12;
+
+              // concentric circular streaks with varying thicknesses
+              float streak1 = abs(sin(radius * 3.14159265 * 100.0));
+              float streak2 = abs(sin(radius * 3.14159265 * 75.0 + 1.2));
+              float streak3 = abs(sin(radius * 3.14159265 * 130.0 + 2.5));
+
+              // combine with different powers for varying thicknesses
+              float streaks = pow(streak1, 10.0) * 0.35 + pow(streak2, 15.0) * 0.35 + pow(streak3, 8.0) * 0.3;
+
+              // radial fade in/out variation (creates groups around the disc)
+              float radialVariation1 = sin(angle * 8.0) * 0.5 + 0.5;
+              float radialVariation2 = sin(angle * 12.0 + 2.0) * 0.5 + 0.5;
+              float radialVariation3 = sin(angle * 16.0 + 4.0) * 0.5 + 0.5;
+              float radialVariation4 = sin(angle * 20.0 + 6.0) * 0.5 + 0.5;
+
+              float radialModulation = radialVariation1 * 0.3 + radialVariation2 * 0.25 + radialVariation3 * 0.25 + radialVariation4 * 0.2;
+              radialModulation = pow(radialModulation, 2.5) * 0.9 + 0.1;
+
+              // fade out near center hole and outer edge
+              float radialFade = smoothstep(0.15, 0.22, radius) * smoothstep(0.5, 0.46, radius);
+              streaks *= radialFade * radialModulation;
+
+              finalColor += vec3(1.0) * streaks * 0.2;
+
+              // white outline on the edge
+              float outerEdge = smoothstep(0.48, 0.5, radius);
+              float innerEdge = smoothstep(0.5, 0.48, radius);
+              float edgeRing = outerEdge * innerEdge;
+              finalColor += vec3(1.0) * edgeRing * 0.7;
 
               gl_FragColor = vec4(finalColor, texColor.a);
             }
@@ -463,7 +492,7 @@ export function SpinningCDCase({
           const discFront = new THREE.Mesh(discGeometry, discMaterial);
           discFront.position.copy(caseCenter);
           discFront.position.x += caseSize.x * discOffsetX;
-          discFront.position.z += discThickness / 2;
+          discFront.position.z += discThickness / 2 + 0.003;
           model.add(discFront);
           visibleMeshes.push(discFront);
 
@@ -485,7 +514,7 @@ export function SpinningCDCase({
           );
           discBack.position.copy(caseCenter);
           discBack.position.x += caseSize.x * discOffsetX;
-          discBack.position.z -= discThickness / 2;
+          discBack.position.z -= discThickness / 2 - 0.003;
           discBack.rotation.y = Math.PI;
           model.add(discBack);
 
@@ -504,6 +533,7 @@ export function SpinningCDCase({
           const discEdge = new THREE.Mesh(edgeGeometry, edgeMat);
           discEdge.position.copy(caseCenter);
           discEdge.position.x += caseSize.x * discOffsetX;
+          discEdge.position.z += 0.003;
           discEdge.rotation.x = Math.PI / 2;
           model.add(discEdge);
 
@@ -518,7 +548,7 @@ export function SpinningCDCase({
           });
           const hole = new THREE.Mesh(holeGeometry, holeMaterial);
           hole.position.copy(discFront.position);
-          hole.position.z += 0.001;
+          hole.position.z -= 0.001;
           model.add(hole);
 
           const clearPlasticMat = new THREE.MeshPhysicalMaterial({
@@ -642,7 +672,10 @@ export function SpinningCDCase({
       }
 
       // Handle pending navigation after close animation completes
-      if (pendingNavigationIndex.current !== null && openProgress.current < 0.05) {
+      if (
+        pendingNavigationIndex.current !== null &&
+        openProgress.current < 0.05
+      ) {
         const targetIndex = pendingNavigationIndex.current;
         pendingNavigationIndex.current = null;
 
@@ -660,7 +693,8 @@ export function SpinningCDCase({
         const { discMaterials, textures } = sceneRef.current!;
         discMaterials.forEach((mat) => {
           if ((mat as THREE.ShaderMaterial).uniforms?.map) {
-            (mat as THREE.ShaderMaterial).uniforms.map.value = textures[targetIndex];
+            (mat as THREE.ShaderMaterial).uniforms.map.value =
+              textures[targetIndex];
           } else {
             mat.map = textures[targetIndex];
             mat.needsUpdate = true;
@@ -762,17 +796,22 @@ export function SpinningCDCase({
       model.position.x = openProgress.current * 65;
 
       // Left tilt as part of straighten/tilt-up (left side away, right side toward user)
-      const leftTiltAngle = openProgress.current < 0.5 ? -tiltUpProgress.current * 0.55 : 0;
+      const leftTiltAngle =
+        openProgress.current < 0.5 ? -tiltUpProgress.current * 0.55 : 0;
       const bookTiltZ = 0;
 
       // Tilt up when hovering (more pronounced)
-      const tiltUpAngle = openProgress.current < 0.5 ? -tiltUpProgress.current * 0.22 : 0;
+      const tiltUpAngle =
+        openProgress.current < 0.5 ? -tiltUpProgress.current * 0.22 : 0;
       const bookTiltX = tiltUpAngle;
 
       const currentTilt = tilt * (1 - straightenProgress.current);
 
       // Handle velocity and rotation (but not while waiting for lid to close)
-      if (straightenProgress.current < 0.01 && pendingNavigationIndex.current === null) {
+      if (
+        straightenProgress.current < 0.01 &&
+        pendingNavigationIndex.current === null
+      ) {
         if (!isDragging.current) {
           if (isNavigating.current) {
             const targetRot = targetRotationValue.current;
@@ -822,7 +861,8 @@ export function SpinningCDCase({
               lastZone.current = currentZone;
               discMaterials.forEach((mat) => {
                 if ((mat as THREE.ShaderMaterial).uniforms?.map) {
-                  (mat as THREE.ShaderMaterial).uniforms.map.value = textures[texIdx];
+                  (mat as THREE.ShaderMaterial).uniforms.map.value =
+                    textures[texIdx];
                 } else {
                   mat.map = textures[texIdx];
                   mat.needsUpdate = true;
@@ -857,7 +897,8 @@ export function SpinningCDCase({
               lastZone.current = currentZone;
               discMaterials.forEach((mat) => {
                 if ((mat as THREE.ShaderMaterial).uniforms?.map) {
-                  (mat as THREE.ShaderMaterial).uniforms.map.value = textures[texIdx];
+                  (mat as THREE.ShaderMaterial).uniforms.map.value =
+                    textures[texIdx];
                 } else {
                   mat.map = textures[texIdx];
                   mat.needsUpdate = true;
@@ -883,7 +924,11 @@ export function SpinningCDCase({
         // Check for idle timeout (4 seconds for navigation, 5 seconds for hover)
         const now = Date.now();
         const idleTimeout = navigationLanded.current ? 4000 : 5000;
-        if (now - lastInteractionTime.current > idleTimeout && openProgress.current < 0.01 && !hoverStraightenStarted.current) {
+        if (
+          now - lastInteractionTime.current > idleTimeout &&
+          openProgress.current < 0.01 &&
+          !hoverStraightenStarted.current
+        ) {
           rotation.current = 0;
           savedRotation.current = 0;
           targetStraightenProgress.current = 0;
@@ -900,7 +945,8 @@ export function SpinningCDCase({
         // Straightening: interpolate rotation toward NEAREST front-facing position
         const nearestFront = Math.round(savedRotation.current / 180) * 180;
         const currentRotation =
-          savedRotation.current + (nearestFront - savedRotation.current) * straightenProgress.current;
+          savedRotation.current +
+          (nearestFront - savedRotation.current) * straightenProgress.current;
         const rotRad = (currentRotation * Math.PI) / 180 + leftTiltAngle;
         const tiltRad = (currentTilt * Math.PI) / 180;
         model.rotation.set(bookTiltX, rotRad, tiltRad - bookTiltZ);
@@ -986,7 +1032,10 @@ export function SpinningCDCase({
     rotation.current += deltaX * sensitivity;
     startX.current = e.clientX;
     const maxVelocity = 25;
-    velocity.current = Math.max(-maxVelocity, Math.min(maxVelocity, deltaX * sensitivity));
+    velocity.current = Math.max(
+      -maxVelocity,
+      Math.min(maxVelocity, deltaX * sensitivity),
+    );
     lastInteractionTime.current = Date.now();
     isNavigating.current = false;
   };
@@ -1225,9 +1274,7 @@ export function SpinningCDCase({
               transition: "all 0.2s ease",
               background: currentAlbumIndex === index ? "#666" : "#fff",
               boxShadow:
-                currentAlbumIndex === index
-                  ? "none"
-                  : "inset 0 0 0 1px #999",
+                currentAlbumIndex === index ? "none" : "inset 0 0 0 1px #999",
             }}
             aria-label={`Go to album ${index + 1}`}
           />
@@ -1275,7 +1322,7 @@ export function SpinningCDCase({
                   marginTop: 8,
                 }}
               >
-                "{albums[currentAlbumIndex].note}"
+                {albums[currentAlbumIndex].note}
               </div>
             )}
           </div>
