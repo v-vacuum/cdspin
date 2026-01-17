@@ -32,7 +32,7 @@ export function SpinningCDCase({
   const [isOpen, setIsOpen] = useState(false);
   const [currentAlbumIndex, setCurrentAlbumIndex] = useState(0);
   const [isHovering, setIsHovering] = useState(false);
-const isDarkBackground = false;
+  const isDarkBackground = false;
 
   const rotation = useRef(0);
   const savedRotation = useRef(0);
@@ -47,11 +47,22 @@ const isDarkBackground = false;
   const targetOpenProgress = useRef(0);
   const straightenProgress = useRef(0);
   const targetStraightenProgress = useRef(0);
+  const ajarProgress = useRef(0);
+  const targetAjarProgress = useRef(0);
+  const ajarSoundPlayed = useRef(false);
+  const hoverStraightenStarted = useRef(false);
+  const popScale = useRef(1);
+  const targetPopScale = useRef(1);
+  const tiltUpProgress = useRef(0);
+  const targetTiltUpProgress = useRef(0);
 
   const isNavigating = useRef(false);
   const targetRotationValue = useRef(0);
   const lastInteractionTime = useRef(Date.now());
   const isResumingFromIdle = useRef(false);
+  const navigationLanded = useRef(false);
+  const hoverWaitingForSettle = useRef(false);
+  const navigationStartTime = useRef(0);
 
   const sceneRef = useRef<{
     scene: THREE.Scene;
@@ -71,8 +82,42 @@ const isDarkBackground = false;
     setIsOpen(false);
   }, []);
 
+  const playClickSound = useCallback(() => {
+    const audioContext = new AudioContext();
+
+    const bufferSize = audioContext.sampleRate * 0.04;
+    const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < bufferSize; i++) {
+      const envelope = Math.exp(-i / (bufferSize * 0.08));
+      data[i] = (Math.random() * 2 - 1) * envelope * 0.25;
+    }
+
+    const source = audioContext.createBufferSource();
+    source.buffer = buffer;
+
+    const filter = audioContext.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.value = 2500;
+    filter.Q.value = 1.5;
+
+    source.connect(filter);
+    filter.connect(audioContext.destination);
+    source.start();
+  }, []);
+
+  const pendingNavigationIndex = useRef<number | null>(null);
+
   const navigateToAlbum = useCallback((targetIndex: number) => {
-    if (isOpen || !sceneRef.current) return;
+    if (!sceneRef.current) return;
+
+    // If open, close first and queue the navigation
+    if (isOpen) {
+      pendingNavigationIndex.current = targetIndex;
+      handleClose();
+      return;
+    }
 
     const len = albums.length;
     const currentIdx = ((imageIndex.current % len) + len) % len;
@@ -98,10 +143,23 @@ const isDarkBackground = false;
     lastInteractionTime.current = Date.now();
     isResumingFromIdle.current = false;
 
+    // Reset all ajar/tilt state when navigating
+    ajarProgress.current = 0;
+    targetAjarProgress.current = 0;
+    tiltUpProgress.current = 0;
+    targetTiltUpProgress.current = 0;
+    ajarSoundPlayed.current = false;
+    navigationLanded.current = false;
+    hoverStraightenStarted.current = false;
+
     const { discMaterials, textures } = sceneRef.current;
     discMaterials.forEach((mat) => {
-      mat.map = textures[targetIndex];
-      mat.needsUpdate = true;
+      if ((mat as THREE.ShaderMaterial).uniforms?.map) {
+        (mat as THREE.ShaderMaterial).uniforms.map.value = textures[targetIndex];
+      } else {
+        mat.map = textures[targetIndex];
+        mat.needsUpdate = true;
+      }
     });
 
     imageIndex.current = targetIndex;
@@ -115,13 +173,13 @@ const isDarkBackground = false;
       targetStraightenProgress.current = 0;
     }
 
-    const targetRot = Math.round((rotation.current + 720) / 360) * 360;
+    const targetRot = Math.round((rotation.current + 360) / 360) * 360;
 
     isNavigating.current = true;
     targetRotationValue.current = targetRot;
     const direction = targetRot >= rotation.current ? 1 : -1;
-    velocity.current = direction * 15;
-  }, [albums.length, isOpen]);
+    velocity.current = direction * 8;
+  }, [albums.length, isOpen, handleClose]);
 
   useEffect(() => {
     if (!containerRef.current || albums.length === 0) return;
@@ -140,7 +198,6 @@ const isDarkBackground = false;
     renderer.toneMappingExposure = 1.5;
     container.appendChild(renderer.domElement);
 
-    // Lighting for shiny plastic look with strong specular highlights
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
     scene.add(ambientLight);
 
@@ -152,7 +209,6 @@ const isDarkBackground = false;
     backLight.position.set(-3, 2, -4);
     scene.add(backLight);
 
-    // Point light for specular highlights on edges
     const pointLight = new THREE.PointLight(0xffffff, 1.5, 500);
     pointLight.position.set(0, 100, 200);
     scene.add(pointLight);
@@ -161,17 +217,14 @@ const isDarkBackground = false;
     rimLight.position.set(-5, 0, -3);
     scene.add(rimLight);
 
-    // Additional highlight from top
     const topLight = new THREE.DirectionalLight(0xffffff, 0.8);
     topLight.position.set(0, 10, 0);
     scene.add(topLight);
 
-    // Front light for more reflections
     const frontLight = new THREE.DirectionalLight(0xffffff, 1.2);
     frontLight.position.set(0, 0, 10);
     scene.add(frontLight);
 
-    // Side light for edge highlights
     const sideLight = new THREE.DirectionalLight(0xffffff, 0.9);
     sideLight.position.set(8, 3, 2);
     scene.add(sideLight);
@@ -184,11 +237,9 @@ const isDarkBackground = false;
     let textures: THREE.Texture[] = [];
     let animationStarted = false;
 
-    // Load GLB model
     const gltfLoader = new GLTFLoader();
     const textureLoader = new THREE.TextureLoader();
 
-    // Load textures first
     const texturePromises = albums.map(
       (album) =>
         new Promise<THREE.Texture>((resolve) => {
@@ -215,7 +266,6 @@ const isDarkBackground = false;
         model = loadedModel;
         textures = loadedTextures;
 
-        // Find all meshes and their sizes
         const meshes: { mesh: THREE.Mesh; size: number; name: string }[] = [];
         console.log("=== MODEL DEBUG ===");
         model.traverse((child) => {
@@ -240,36 +290,28 @@ const isDarkBackground = false;
           console.log(`Mesh ${i}: "${m.name}" size: ${m.size.toFixed(4)}`);
         });
 
-        // Sort by size and hide the largest one (backdrop)
         meshes.sort((a, b) => b.size - a.size);
         if (meshes.length > 1) {
           console.log("Hiding largest mesh (backdrop):", meshes[0].name);
           meshes[0].mesh.visible = false;
         }
 
-        // Get the CD case mesh (the smaller visible one)
         const cdCaseMesh = meshes.length > 1 ? meshes[1].mesh : meshes[0]?.mesh;
 
-        // Center based on the CD case mesh only
         if (cdCaseMesh) {
           const box = new THREE.Box3().setFromObject(cdCaseMesh);
           const center = box.getCenter(new THREE.Vector3());
-          // Move the entire model so the CD case is centered
           model.position.set(-center.x, -center.y, -center.z);
         }
 
-        // Create a wrapper group to rotate around center
         const wrapper = new THREE.Group();
         wrapper.add(model);
         wrapper.scale.set(450, 450, 450);
 
-        // Log the model structure to find mesh names
         console.log("Model structure:");
 
-        // Make case meshes transparent and collect visible ones for raycasting
         const visibleMeshes: THREE.Mesh[] = [];
         model.traverse((child) => {
-          // Find the front cover for hinge animation
           if (
             child.name.toLowerCase().includes("front") ||
             child.name.toLowerCase().includes("cover") ||
@@ -279,13 +321,11 @@ const isDarkBackground = false;
             console.log("Found front cover:", child.name);
           }
 
-          // Make case meshes transparent
           if (child instanceof THREE.Mesh && child.visible) {
             const mesh = child as THREE.Mesh;
             console.log("Making transparent:", child.name);
             visibleMeshes.push(mesh);
 
-            // Create very translucent material with sharp edges and very high reflection
             const transparentMaterial = new THREE.MeshPhysicalMaterial({
               color: 0xffffff,
               transparent: true,
@@ -306,7 +346,6 @@ const isDarkBackground = false;
             });
             mesh.material = transparentMaterial;
 
-            // Add sharp edge lines
             const edges = new THREE.EdgesGeometry(mesh.geometry, 15);
             const edgeMaterial = new THREE.LineBasicMaterial({
               color: 0x999999,
@@ -322,17 +361,11 @@ const isDarkBackground = false;
         });
         console.log("Visible meshes for raycasting:", visibleMeshes.length);
 
-        // Calculate the center and size of the case to place the CD
         if (cdCaseMesh) {
           const caseBox = new THREE.Box3().setFromObject(cdCaseMesh);
           const caseCenter = caseBox.getCenter(new THREE.Vector3());
           const caseSize = caseBox.getSize(new THREE.Vector3());
 
-          // Create CD disc (with center hole)
-          // Tweak these values to adjust:
-          // - discRadiusMultiplier: 0.45 (increase to make CD larger, decrease to make smaller)
-          // - holeRadiusMultiplier: 0.08 (increase for bigger hole, decrease for smaller)
-          // - discOffsetX: -0.01 (negative = left, positive = right)
           const discRadiusMultiplier = 0.43;
           const holeRadiusMultiplier = 0.2;
           const discOffsetX = 0.04;
@@ -341,23 +374,92 @@ const isDarkBackground = false;
             Math.min(caseSize.x, caseSize.y) * discRadiusMultiplier;
           const holeRadius = discRadius * holeRadiusMultiplier;
 
-          // Create thick CD disc with hole
           const discThickness = 0.002;
           const discGeometry = new THREE.RingGeometry(
             holeRadius,
             discRadius,
             64,
           );
-          const discMaterial = new THREE.MeshBasicMaterial({
-            color: 0xffffff,
+
+          // Custom shader for CD iridescence effect
+          const cdVertexShader = `
+            varying vec2 vUv;
+            varying vec3 vNormal;
+            varying vec3 vViewPosition;
+            varying vec3 vWorldPosition;
+
+            void main() {
+              vUv = uv;
+              vNormal = normalize(normalMatrix * normal);
+              vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+              vViewPosition = -mvPosition.xyz;
+              vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+              gl_Position = projectionMatrix * mvPosition;
+            }
+          `;
+
+          const cdFragmentShader = `
+            uniform sampler2D map;
+            uniform float time;
+            varying vec2 vUv;
+            varying vec3 vNormal;
+            varying vec3 vViewPosition;
+            varying vec3 vWorldPosition;
+
+            vec3 hsv2rgb(vec3 c) {
+              vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+              vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+              return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+            }
+
+            void main() {
+              vec4 texColor = texture2D(map, vUv);
+
+              // Calculate view direction
+              vec3 viewDir = normalize(vViewPosition);
+
+              // Use view direction to shift hue - creates rainbow when rotating
+              float viewAngle = atan(viewDir.x, viewDir.z);
+
+              // Fresnel for glancing angle enhancement
+              float fresnel = pow(1.0 - abs(dot(vNormal, viewDir)), 3.0);
+
+              // Rainbow as concentric bands radiating from center
+              vec2 centeredUv = vUv - 0.5;
+              float radius = length(centeredUv);
+              float hue = fract(radius * 4.0 + viewAngle * 0.3);
+              vec3 rainbow = hsv2rgb(vec3(hue, 0.7, 1.0));
+
+              // Subtle iridescence - reduced strength
+              float iridescenceStrength = fresnel * 0.25;
+
+              // Brighten the base texture
+              vec3 brightTexColor = texColor.rgb * 1.3;
+
+              // Mix brightened texture with rainbow
+              vec3 finalColor = mix(brightTexColor, rainbow, iridescenceStrength);
+
+              // Add white specular highlight - reduced
+              float sheen = pow(max(dot(reflect(-viewDir, vNormal), vec3(0.0, 0.0, 1.0)), 0.0), 16.0);
+              finalColor += vec3(1.0) * sheen * 0.12;
+
+              gl_FragColor = vec4(finalColor, texColor.a);
+            }
+          `;
+
+          const discMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+              map: { value: textures[0] },
+              time: { value: 0 },
+            },
+            vertexShader: cdVertexShader,
+            fragmentShader: cdFragmentShader,
             side: THREE.FrontSide,
-            map: textures[0],
           });
           discMaterials.push(
             discMaterial as unknown as THREE.MeshStandardMaterial,
           );
 
-          // Front face of disc
           const discFront = new THREE.Mesh(discGeometry, discMaterial);
           discFront.position.copy(caseCenter);
           discFront.position.x += caseSize.x * discOffsetX;
@@ -365,11 +467,14 @@ const isDarkBackground = false;
           model.add(discFront);
           visibleMeshes.push(discFront);
 
-          // Back face of disc (also shows album image)
-          const discBackMaterial = new THREE.MeshBasicMaterial({
-            color: 0xffffff,
+          const discBackMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+              map: { value: textures[0] },
+              time: { value: 0 },
+            },
+            vertexShader: cdVertexShader,
+            fragmentShader: cdFragmentShader,
             side: THREE.FrontSide,
-            map: textures[0],
           });
           discMaterials.push(
             discBackMaterial as unknown as THREE.MeshStandardMaterial,
@@ -384,7 +489,6 @@ const isDarkBackground = false;
           discBack.rotation.y = Math.PI;
           model.add(discBack);
 
-          // Edge ring for thickness
           const edgeGeometry = new THREE.CylinderGeometry(
             discRadius,
             discRadius,
@@ -403,7 +507,6 @@ const isDarkBackground = false;
           discEdge.rotation.x = Math.PI / 2;
           model.add(discEdge);
 
-          // Add center hole ring (dark) on front
           const holeGeometry = new THREE.RingGeometry(
             holeRadius * 0.3,
             holeRadius,
@@ -418,7 +521,6 @@ const isDarkBackground = false;
           hole.position.z += 0.001;
           model.add(hole);
 
-          // Very translucent material for covers with sharp edges and very high reflection
           const clearPlasticMat = new THREE.MeshPhysicalMaterial({
             color: 0xffffff,
             transparent: true,
@@ -438,14 +540,12 @@ const isDarkBackground = false;
             depthWrite: false,
           });
 
-          // Edge material for covers
           const edgeMaterial = new THREE.LineBasicMaterial({
             color: 0x888888,
             transparent: true,
             opacity: 0.5,
           });
 
-          // Create back cover (the base that holds the CD)
           const backCoverGeom = new THREE.BoxGeometry(
             caseSize.x,
             caseSize.y,
@@ -460,7 +560,6 @@ const isDarkBackground = false;
           model.add(backCoverMesh);
           visibleMeshes.push(backCoverMesh);
 
-          // Add edges to back cover
           const backEdges = new THREE.EdgesGeometry(backCoverGeom, 1);
           const backEdgeLines = new THREE.LineSegments(
             backEdges,
@@ -469,14 +568,12 @@ const isDarkBackground = false;
           backEdgeLines.position.copy(backCoverMesh.position);
           model.add(backEdgeLines);
 
-          // Create front cover that can swing open
           const frontCoverGeom = new THREE.BoxGeometry(
             caseSize.x,
             caseSize.y,
             caseSize.z * 0.05,
           );
 
-          // Create a pivot group for the hinge effect
           const frontCoverPivot = new THREE.Group();
           frontCoverPivot.position.set(
             caseCenter.x - caseSize.x / 2,
@@ -491,7 +588,6 @@ const isDarkBackground = false;
           frontCoverMesh.position.set(caseSize.x / 2, 0, 0);
           frontCoverPivot.add(frontCoverMesh);
 
-          // Add edges to front cover
           const frontEdges = new THREE.EdgesGeometry(frontCoverGeom, 1);
           const frontEdgeLines = new THREE.LineSegments(
             frontEdges,
@@ -506,14 +602,11 @@ const isDarkBackground = false;
           visibleMeshes.push(frontCoverMesh);
         }
 
-        // Use wrapper as the main model reference
         model = wrapper;
 
-        // Apply initial tilt
         model.rotation.z = (tilt * Math.PI) / 180;
         scene.add(model);
 
-        // Update matrices so raycasting works correctly
         model.updateMatrixWorld(true);
 
         sceneRef.current = {
@@ -548,6 +641,49 @@ const isDarkBackground = false;
         openProgress.current = targetOpenProgress.current;
       }
 
+      // Handle pending navigation after close animation completes
+      if (pendingNavigationIndex.current !== null && openProgress.current < 0.05) {
+        const targetIndex = pendingNavigationIndex.current;
+        pendingNavigationIndex.current = null;
+
+        // Snap lid fully closed and reset all ajar/tilt state
+        openProgress.current = 0;
+        targetOpenProgress.current = 0;
+        ajarProgress.current = 0;
+        targetAjarProgress.current = 0;
+        tiltUpProgress.current = 0;
+        targetTiltUpProgress.current = 0;
+        ajarSoundPlayed.current = false;
+        navigationLanded.current = false;
+        hoverStraightenStarted.current = false;
+
+        const { discMaterials, textures } = sceneRef.current!;
+        discMaterials.forEach((mat) => {
+          if ((mat as THREE.ShaderMaterial).uniforms?.map) {
+            (mat as THREE.ShaderMaterial).uniforms.map.value = textures[targetIndex];
+          } else {
+            mat.map = textures[targetIndex];
+            mat.needsUpdate = true;
+          }
+        });
+
+        imageIndex.current = targetIndex;
+        lastZone.current = Math.floor((rotation.current + 90) / 180);
+        setCurrentAlbumIndex(targetIndex);
+
+        // Reset rotation state
+        rotation.current = 0;
+        savedRotation.current = 0;
+        straightenProgress.current = 0;
+        targetStraightenProgress.current = 0;
+
+        const targetRot = 360;
+        isNavigating.current = true;
+        targetRotationValue.current = targetRot;
+        velocity.current = 8;
+        lastInteractionTime.current = Date.now();
+      }
+
       // Animate straighten
       const straightenDiff =
         targetStraightenProgress.current - straightenProgress.current;
@@ -557,35 +693,100 @@ const isDarkBackground = false;
         straightenProgress.current = targetStraightenProgress.current;
       }
 
-      // Apply hinge rotation to front cover if found (open flat at 180 degrees)
-      if (frontCover) {
-        frontCover.rotation.y = -openProgress.current * Math.PI;
+      // Animate ajar
+      const ajarDiff = targetAjarProgress.current - ajarProgress.current;
+      if (Math.abs(ajarDiff) > 0.001) {
+        ajarProgress.current += ajarDiff * 0.12;
+      } else {
+        ajarProgress.current = targetAjarProgress.current;
       }
 
-      // Scale down when opened and shift right to center the opened case
-      const openScale = 1 - openProgress.current * 0.15;
-      model.scale.set(400 * openScale, 400 * openScale, 400 * openScale);
-      model.position.x = openProgress.current * 65; // Increased to prevent left lid cutoff
+      // Animate pop scale
+      const popDiff = targetPopScale.current - popScale.current;
+      if (Math.abs(popDiff) > 0.001) {
+        popScale.current += popDiff * 0.15;
+      } else {
+        popScale.current = targetPopScale.current;
+      }
 
-      // Keep CD straight when opened
-      const bookTiltX = 0;
+      // Animate tilt up
+      const tiltUpDiff = targetTiltUpProgress.current - tiltUpProgress.current;
+      if (Math.abs(tiltUpDiff) > 0.001) {
+        tiltUpProgress.current += tiltUpDiff * 0.1;
+      } else {
+        tiltUpProgress.current = targetTiltUpProgress.current;
+      }
+
+      // Trigger tilt-up simultaneously with straightening (for hover)
+      if (
+        hoverStraightenStarted.current &&
+        !isDragging.current &&
+        openProgress.current < 0.01 &&
+        targetTiltUpProgress.current < 0.5
+      ) {
+        targetTiltUpProgress.current = 1;
+      }
+
+      // Trigger ajar (with pop) when straightened and velocity near zero (hover or navigation)
+      if (
+        (hoverStraightenStarted.current || navigationLanded.current) &&
+        !isDragging.current &&
+        openProgress.current < 0.01 &&
+        straightenProgress.current > 0.95 &&
+        Math.abs(velocity.current) < 0.15 &&
+        targetAjarProgress.current < 0.5
+      ) {
+        targetAjarProgress.current = 1;
+        targetPopScale.current = 1.03;
+        setTimeout(() => {
+          targetPopScale.current = 1;
+        }, 50);
+
+        if (!ajarSoundPlayed.current) {
+          playClickSound();
+          ajarSoundPlayed.current = true;
+        }
+      }
+
+      // Apply hinge rotation to front cover
+      if (frontCover) {
+        const openAngle = -openProgress.current * Math.PI;
+        const ajarAngle = -ajarProgress.current * 0.35;
+        frontCover.rotation.y = openAngle + ajarAngle;
+      }
+
+      // Scale and position
+      const openScale = 1 - openProgress.current * 0.15;
+      const finalScale = 400 * openScale * popScale.current;
+      model.scale.set(finalScale, finalScale, finalScale);
+      model.position.x = openProgress.current * 65;
+
+      // Left tilt as part of straighten/tilt-up (left side away, right side toward user)
+      const leftTiltAngle = openProgress.current < 0.5 ? -tiltUpProgress.current * 0.55 : 0;
       const bookTiltZ = 0;
 
-      // When opening/straightening, interpolate rotation and tilt to 0
+      // Tilt up when hovering (more pronounced)
+      const tiltUpAngle = openProgress.current < 0.5 ? -tiltUpProgress.current * 0.22 : 0;
+      const bookTiltX = tiltUpAngle;
+
       const currentTilt = tilt * (1 - straightenProgress.current);
 
-      if (straightenProgress.current < 0.01) {
+      // Handle velocity and rotation (but not while waiting for lid to close)
+      if (straightenProgress.current < 0.01 && pendingNavigationIndex.current === null) {
         if (!isDragging.current) {
           if (isNavigating.current) {
             const targetRot = targetRotationValue.current;
             const rotDiff = targetRot - rotation.current;
 
             if (Math.abs(rotDiff) < 10) {
-              rotation.current = 0;
-              savedRotation.current = 0;
+              // Don't snap - let straightening handle the smooth transition to front-facing
+              savedRotation.current = rotation.current;
               velocity.current = 0;
               isNavigating.current = false;
               targetStraightenProgress.current = 1;
+              targetTiltUpProgress.current = 1;
+              navigationLanded.current = true;
+              ajarSoundPlayed.current = false;
               lastInteractionTime.current = Date.now();
               lastZone.current = 0;
             } else {
@@ -605,6 +806,35 @@ const isDarkBackground = false;
               velocity.current = autoSpinSpeed;
               isResumingFromIdle.current = false;
               lastZone.current = Math.floor((rotation.current + 90) / 180);
+            }
+          } else if (hoverWaitingForSettle.current) {
+            rotation.current += velocity.current;
+            velocity.current *= 0.92;
+
+            const currentZone = Math.floor((rotation.current + 90) / 180);
+            if (currentZone !== lastZone.current) {
+              const direction = currentZone > lastZone.current ? 1 : -1;
+              imageIndex.current += direction;
+
+              const len = textures.length;
+              const texIdx = ((imageIndex.current % len) + len) % len;
+
+              lastZone.current = currentZone;
+              discMaterials.forEach((mat) => {
+                if ((mat as THREE.ShaderMaterial).uniforms?.map) {
+                  (mat as THREE.ShaderMaterial).uniforms.map.value = textures[texIdx];
+                } else {
+                  mat.map = textures[texIdx];
+                  mat.needsUpdate = true;
+                }
+              });
+              setCurrentAlbumIndex(texIdx);
+            }
+
+            if (Math.abs(velocity.current) < 1) {
+              hoverWaitingForSettle.current = false;
+              targetStraightenProgress.current = 1;
+              hoverStraightenStarted.current = true;
             }
           } else {
             rotation.current += velocity.current;
@@ -626,8 +856,12 @@ const isDarkBackground = false;
 
               lastZone.current = currentZone;
               discMaterials.forEach((mat) => {
-                mat.map = textures[texIdx];
-                mat.needsUpdate = true;
+                if ((mat as THREE.ShaderMaterial).uniforms?.map) {
+                  (mat as THREE.ShaderMaterial).uniforms.map.value = textures[texIdx];
+                } else {
+                  mat.map = textures[texIdx];
+                  mat.needsUpdate = true;
+                }
               });
               setCurrentAlbumIndex(texIdx);
             }
@@ -636,27 +870,53 @@ const isDarkBackground = false;
 
         savedRotation.current = rotation.current;
 
-        const rotRad = (rotation.current * Math.PI) / 180;
+        const rotRad = (rotation.current * Math.PI) / 180 + leftTiltAngle;
         const tiltRad = (currentTilt * Math.PI) / 180;
         model.rotation.set(bookTiltX, rotRad, tiltRad - bookTiltZ);
       } else {
+        // Handle hover straightening
+        if (!isDragging.current && hoverStraightenStarted.current) {
+          velocity.current *= 0.95;
+          rotation.current += velocity.current;
+        }
+
+        // Check for idle timeout (4 seconds for navigation, 5 seconds for hover)
         const now = Date.now();
-        if (now - lastInteractionTime.current > 5000 && openProgress.current < 0.01) {
+        const idleTimeout = navigationLanded.current ? 4000 : 5000;
+        if (now - lastInteractionTime.current > idleTimeout && openProgress.current < 0.01 && !hoverStraightenStarted.current) {
           rotation.current = 0;
           savedRotation.current = 0;
           targetStraightenProgress.current = 0;
+          targetTiltUpProgress.current = 0;
+          targetAjarProgress.current = 0;
+          ajarSoundPlayed.current = false;
+          navigationLanded.current = false;
           velocity.current = 0;
           isResumingFromIdle.current = true;
         }
+
+        savedRotation.current = rotation.current;
+
+        // Straightening: interpolate rotation toward NEAREST front-facing position
+        const nearestFront = Math.round(savedRotation.current / 180) * 180;
         const currentRotation =
-          savedRotation.current * (1 - straightenProgress.current);
-        const rotRad = (currentRotation * Math.PI) / 180;
+          savedRotation.current + (nearestFront - savedRotation.current) * straightenProgress.current;
+        const rotRad = (currentRotation * Math.PI) / 180 + leftTiltAngle;
         const tiltRad = (currentTilt * Math.PI) / 180;
         model.rotation.set(bookTiltX, rotRad, tiltRad - bookTiltZ);
       }
 
-      // Update world matrices for raycasting
       model.updateMatrixWorld(true);
+
+      // Update time uniform for CD iridescence animation
+      if (sceneRef.current) {
+        const time = Date.now() * 0.001;
+        sceneRef.current.discMaterials.forEach((mat) => {
+          if ((mat as THREE.ShaderMaterial).uniforms?.time) {
+            (mat as THREE.ShaderMaterial).uniforms.time.value = time;
+          }
+        });
+      }
 
       renderer.render(scene, camera);
       rafId.current = requestAnimationFrame(animate);
@@ -673,14 +933,13 @@ const isDarkBackground = false;
       }
       sceneRef.current = null;
     };
-  }, [albums, width, height, autoSpinSpeed, tilt]);
+  }, [albums, width, height, autoSpinSpeed, tilt, playClickSound]);
 
   const pointerIdRef = useRef<number | null>(null);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (isOpen) return;
 
-    // Check if we're hovering over a visible mesh
     const rect = e.currentTarget.getBoundingClientRect();
     const mouse = new THREE.Vector2(
       ((e.clientX - rect.left) / rect.width) * 2 - 1,
@@ -691,7 +950,6 @@ const isDarkBackground = false;
       const { raycaster, camera, visibleMeshes } = sceneRef.current;
       raycaster.setFromCamera(mouse, camera);
 
-      // Only check against visible meshes, not the whole model
       let hit = false;
       for (const mesh of visibleMeshes) {
         const intersects = raycaster.intersectObject(mesh, false);
@@ -707,6 +965,13 @@ const isDarkBackground = false;
         startX.current = e.clientX;
         pointerIdRef.current = e.pointerId;
         e.currentTarget.setPointerCapture(e.pointerId);
+
+        if (hoverStraightenStarted.current) {
+          targetStraightenProgress.current = 0;
+          targetAjarProgress.current = 0;
+          targetTiltUpProgress.current = 0;
+          ajarSoundPlayed.current = false;
+        }
       }
     }
   };
@@ -720,7 +985,8 @@ const isDarkBackground = false;
     }
     rotation.current += deltaX * sensitivity;
     startX.current = e.clientX;
-    velocity.current = deltaX * sensitivity;
+    const maxVelocity = 25;
+    velocity.current = Math.max(-maxVelocity, Math.min(maxVelocity, deltaX * sensitivity));
     lastInteractionTime.current = Date.now();
     isNavigating.current = false;
   };
@@ -731,15 +997,33 @@ const isDarkBackground = false;
       e.currentTarget.releasePointerCapture(pointerIdRef.current);
       pointerIdRef.current = null;
     }
+
+    if (isHovering && !isOpen) {
+      if (Math.abs(velocity.current) > 1) {
+        hoverWaitingForSettle.current = true;
+      } else {
+        targetStraightenProgress.current = 1;
+        hoverStraightenStarted.current = true;
+      }
+    }
   };
 
   const handleLostPointerCapture = () => {
     isDragging.current = false;
     pointerIdRef.current = null;
+
+    if (isHovering && !isOpen) {
+      if (Math.abs(velocity.current) > 1) {
+        hoverWaitingForSettle.current = true;
+      } else {
+        targetStraightenProgress.current = 1;
+        hoverStraightenStarted.current = true;
+      }
+    }
   };
 
   const handleHover = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (isOpen || isDragging.current) return;
+    if (isOpen || isNavigating.current) return;
 
     const rect = e.currentTarget.getBoundingClientRect();
     const mouse = new THREE.Vector2(
@@ -759,12 +1043,56 @@ const isDarkBackground = false;
           break;
         }
       }
+
+      const wasHovering = isHovering;
       setIsHovering(hit);
+
+      if (hit && !wasHovering && !isDragging.current) {
+        if (Math.abs(velocity.current) > 1) {
+          hoverWaitingForSettle.current = true;
+        } else {
+          targetStraightenProgress.current = 1;
+          hoverStraightenStarted.current = true;
+        }
+      } else if (!hit && wasHovering && !isDragging.current) {
+        hoverWaitingForSettle.current = false;
+        if (straightenProgress.current > 0.1) {
+          const nearestFront = Math.round(rotation.current / 180) * 180;
+          rotation.current = nearestFront;
+          savedRotation.current = nearestFront;
+        }
+        lastZone.current = Math.floor((rotation.current + 90) / 180);
+        targetStraightenProgress.current = 0;
+        targetAjarProgress.current = 0;
+        targetTiltUpProgress.current = 0;
+        ajarSoundPlayed.current = false;
+        hoverStraightenStarted.current = false;
+        targetPopScale.current = 1;
+      }
     }
   };
 
   const handlePointerLeave = () => {
+    if (isDragging.current) {
+      isDragging.current = false;
+      pointerIdRef.current = null;
+    }
     setIsHovering(false);
+    hoverWaitingForSettle.current = false;
+    if (!isOpen) {
+      if (straightenProgress.current > 0.1) {
+        const nearestFront = Math.round(rotation.current / 180) * 180;
+        rotation.current = nearestFront;
+        savedRotation.current = nearestFront;
+      }
+      lastZone.current = Math.floor((rotation.current + 90) / 180);
+      targetStraightenProgress.current = 0;
+      targetAjarProgress.current = 0;
+      targetTiltUpProgress.current = 0;
+      ajarSoundPlayed.current = false;
+      hoverStraightenStarted.current = false;
+      targetPopScale.current = 1;
+    }
   };
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -796,6 +1124,12 @@ const isDarkBackground = false;
         straightenProgress.current = 1;
         targetStraightenProgress.current = 1;
         lastZone.current = 0;
+
+        ajarProgress.current = 0;
+        targetAjarProgress.current = 0;
+        tiltUpProgress.current = 0;
+        targetTiltUpProgress.current = 0;
+        hoverStraightenStarted.current = false;
 
         setIsOpen(true);
         targetOpenProgress.current = 1;
@@ -872,9 +1206,9 @@ const isDarkBackground = false;
           transform: "translateX(-50%)",
           display: "flex",
           gap: 8,
-          opacity: isOpen ? 0 : 1,
+          opacity: isOpen ? 0.5 : 1,
           transition: "opacity 0.2s ease",
-          pointerEvents: isOpen ? "none" : "auto",
+          pointerEvents: "auto",
         }}
       >
         {albums.map((_, index) => (
