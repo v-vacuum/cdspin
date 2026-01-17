@@ -32,7 +32,7 @@ export function SpinningCDCase({
   const [isOpen, setIsOpen] = useState(false);
   const [currentAlbumIndex, setCurrentAlbumIndex] = useState(0);
   const [isHovering, setIsHovering] = useState(false);
-  const isDarkBackground = false;
+const isDarkBackground = false;
 
   const rotation = useRef(0);
   const savedRotation = useRef(0);
@@ -47,6 +47,11 @@ export function SpinningCDCase({
   const targetOpenProgress = useRef(0);
   const straightenProgress = useRef(0);
   const targetStraightenProgress = useRef(0);
+
+  const isNavigating = useRef(false);
+  const targetRotationValue = useRef(0);
+  const lastInteractionTime = useRef(Date.now());
+  const isResumingFromIdle = useRef(false);
 
   const sceneRef = useRef<{
     scene: THREE.Scene;
@@ -65,6 +70,58 @@ export function SpinningCDCase({
     targetStraightenProgress.current = 0;
     setIsOpen(false);
   }, []);
+
+  const navigateToAlbum = useCallback((targetIndex: number) => {
+    if (isOpen || !sceneRef.current) return;
+
+    const len = albums.length;
+    const currentIdx = ((imageIndex.current % len) + len) % len;
+    if (targetIndex === currentIdx && !isNavigating.current) {
+      if (straightenProgress.current < 0.01) {
+        const normalizedRotation = ((rotation.current % 360) + 360) % 360;
+        let targetRot;
+        if (normalizedRotation <= 180) {
+          targetRot = rotation.current - normalizedRotation;
+        } else {
+          targetRot = rotation.current + (360 - normalizedRotation);
+        }
+
+        isNavigating.current = true;
+        targetRotationValue.current = targetRot;
+        const direction = targetRot >= rotation.current ? 1 : -1;
+        velocity.current = direction * 8;
+        lastInteractionTime.current = Date.now();
+      }
+      return;
+    }
+
+    lastInteractionTime.current = Date.now();
+    isResumingFromIdle.current = false;
+
+    const { discMaterials, textures } = sceneRef.current;
+    discMaterials.forEach((mat) => {
+      mat.map = textures[targetIndex];
+      mat.needsUpdate = true;
+    });
+
+    imageIndex.current = targetIndex;
+    lastZone.current = Math.floor((rotation.current + 90) / 180);
+    setCurrentAlbumIndex(targetIndex);
+
+    if (straightenProgress.current > 0.01) {
+      rotation.current = 0;
+      savedRotation.current = 0;
+      straightenProgress.current = 0;
+      targetStraightenProgress.current = 0;
+    }
+
+    const targetRot = Math.round((rotation.current + 720) / 360) * 360;
+
+    isNavigating.current = true;
+    targetRotationValue.current = targetRot;
+    const direction = targetRot >= rotation.current ? 1 : -1;
+    velocity.current = direction * 15;
+  }, [albums.length, isOpen]);
 
   useEffect(() => {
     if (!containerRef.current || albums.length === 0) return;
@@ -519,41 +576,78 @@ export function SpinningCDCase({
 
       if (straightenProgress.current < 0.01) {
         if (!isDragging.current) {
-          rotation.current += velocity.current;
+          if (isNavigating.current) {
+            const targetRot = targetRotationValue.current;
+            const rotDiff = targetRot - rotation.current;
 
-          const target = autoSpinSpeed;
-          if (Math.abs(velocity.current) > Math.abs(target)) {
-            velocity.current *= 0.98;
+            if (Math.abs(rotDiff) < 10) {
+              rotation.current = 0;
+              savedRotation.current = 0;
+              velocity.current = 0;
+              isNavigating.current = false;
+              targetStraightenProgress.current = 1;
+              lastInteractionTime.current = Date.now();
+              lastZone.current = 0;
+            } else {
+              velocity.current *= 0.96;
+              if (Math.abs(velocity.current) < 2) {
+                velocity.current = velocity.current >= 0 ? 2 : -2;
+              }
+              rotation.current += velocity.current;
+            }
+          } else if (isResumingFromIdle.current) {
+            if (velocity.current === 0) {
+              lastZone.current = Math.floor((rotation.current + 90) / 180);
+            }
+            rotation.current += velocity.current;
+            velocity.current += (autoSpinSpeed - velocity.current) * 0.05;
+            if (Math.abs(velocity.current - autoSpinSpeed) < 0.01) {
+              velocity.current = autoSpinSpeed;
+              isResumingFromIdle.current = false;
+              lastZone.current = Math.floor((rotation.current + 90) / 180);
+            }
           } else {
-            velocity.current += (target - velocity.current) * 0.02;
+            rotation.current += velocity.current;
+
+            const target = autoSpinSpeed;
+            if (Math.abs(velocity.current) > Math.abs(target)) {
+              velocity.current *= 0.98;
+            } else {
+              velocity.current += (target - velocity.current) * 0.02;
+            }
+
+            const currentZone = Math.floor((rotation.current + 90) / 180);
+            if (currentZone !== lastZone.current) {
+              const direction = currentZone > lastZone.current ? 1 : -1;
+              imageIndex.current += direction;
+
+              const len = textures.length;
+              const texIdx = ((imageIndex.current % len) + len) % len;
+
+              lastZone.current = currentZone;
+              discMaterials.forEach((mat) => {
+                mat.map = textures[texIdx];
+                mat.needsUpdate = true;
+              });
+              setCurrentAlbumIndex(texIdx);
+            }
           }
-        }
-
-        // Zone detection for image swapping (maintains order when going back)
-        const currentZone = Math.floor((rotation.current + 90) / 180);
-        if (currentZone !== lastZone.current) {
-          const direction = currentZone > lastZone.current ? 1 : -1;
-          imageIndex.current += direction;
-
-          // Wrap around properly for negative values
-          const len = textures.length;
-          const texIdx = ((imageIndex.current % len) + len) % len;
-
-          lastZone.current = currentZone;
-          discMaterials.forEach((mat) => {
-            mat.map = textures[texIdx];
-            mat.needsUpdate = true;
-          });
-          setCurrentAlbumIndex(texIdx);
         }
 
         savedRotation.current = rotation.current;
 
-        // Y-axis rotation with tilt on Z
         const rotRad = (rotation.current * Math.PI) / 180;
         const tiltRad = (currentTilt * Math.PI) / 180;
         model.rotation.set(bookTiltX, rotRad, tiltRad - bookTiltZ);
       } else {
+        const now = Date.now();
+        if (now - lastInteractionTime.current > 5000 && openProgress.current < 0.01) {
+          rotation.current = 0;
+          savedRotation.current = 0;
+          targetStraightenProgress.current = 0;
+          velocity.current = 0;
+          isResumingFromIdle.current = true;
+        }
         const currentRotation =
           savedRotation.current * (1 - straightenProgress.current);
         const rotRad = (currentRotation * Math.PI) / 180;
@@ -627,6 +721,8 @@ export function SpinningCDCase({
     rotation.current += deltaX * sensitivity;
     startX.current = e.clientX;
     velocity.current = deltaX * sensitivity;
+    lastInteractionTime.current = Date.now();
+    isNavigating.current = false;
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -768,6 +864,41 @@ export function SpinningCDCase({
         onPointerLeave={handlePointerLeave}
         onClick={isOpen ? handleContainerClick : handleClick}
       />
+      <div
+        style={{
+          position: "absolute",
+          bottom: 24,
+          left: "50%",
+          transform: "translateX(-50%)",
+          display: "flex",
+          gap: 8,
+          opacity: isOpen ? 0 : 1,
+          transition: "opacity 0.2s ease",
+          pointerEvents: isOpen ? "none" : "auto",
+        }}
+      >
+        {albums.map((_, index) => (
+          <button
+            key={index}
+            onClick={() => navigateToAlbum(index)}
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+              background: currentAlbumIndex === index ? "#666" : "#fff",
+              boxShadow:
+                currentAlbumIndex === index
+                  ? "none"
+                  : "inset 0 0 0 1px #999",
+            }}
+            aria-label={`Go to album ${index + 1}`}
+          />
+        ))}
+      </div>
       {isOpen && (
         <>
           <style>
