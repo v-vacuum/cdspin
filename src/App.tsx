@@ -48,7 +48,7 @@ function App() {
         albums={albums}
         width={200}
         height={180}
-        autoSpinSpeed={0.3}
+        autoSpinSpeed={0.6}
       />
     </div>
   );
