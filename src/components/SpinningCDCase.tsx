@@ -557,12 +557,13 @@ export function SpinningCDCase({
             const rotDiff = targetRot - rotation.current;
 
             if (Math.abs(rotDiff) < 10) {
-              rotation.current = targetRot;
+              rotation.current = 0;
+              savedRotation.current = 0;
               velocity.current = 0;
               isNavigating.current = false;
               targetStraightenProgress.current = 1;
               lastInteractionTime.current = Date.now();
-              lastZone.current = Math.floor((rotation.current + 90) / 180);
+              lastZone.current = 0;
             } else {
               velocity.current *= 0.96;
               if (velocity.current < 2) velocity.current = 2;
