@@ -415,33 +415,54 @@ export function SpinningCDCase({
             void main() {
               vec4 texColor = texture2D(map, vUv);
 
-              // Calculate view direction
               vec3 viewDir = normalize(vViewPosition);
-
-              // Use view direction to shift hue - creates rainbow when rotating
               float viewAngle = atan(viewDir.x, viewDir.z);
-
-              // Fresnel for glancing angle enhancement
               float fresnel = pow(1.0 - abs(dot(vNormal, viewDir)), 3.0);
 
-              // Rainbow as concentric bands radiating from center
               vec2 centeredUv = vUv - 0.5;
               float radius = length(centeredUv);
+              float angle = atan(centeredUv.y, centeredUv.x);
+
               float hue = fract(radius * 4.0 + viewAngle * 0.3);
               vec3 rainbow = hsv2rgb(vec3(hue, 0.7, 1.0));
 
-              // Subtle iridescence - reduced strength
               float iridescenceStrength = fresnel * 0.25;
 
-              // Brighten the base texture
               vec3 brightTexColor = texColor.rgb * 1.3;
 
-              // Mix brightened texture with rainbow
               vec3 finalColor = mix(brightTexColor, rainbow, iridescenceStrength);
 
-              // Add white specular highlight - reduced
               float sheen = pow(max(dot(reflect(-viewDir, vNormal), vec3(0.0, 0.0, 1.0)), 0.0), 16.0);
               finalColor += vec3(1.0) * sheen * 0.12;
+
+              // concentric circular streaks with varying thicknesses
+              float streak1 = abs(sin(radius * 3.14159265 * 100.0));
+              float streak2 = abs(sin(radius * 3.14159265 * 75.0 + 1.2));
+              float streak3 = abs(sin(radius * 3.14159265 * 130.0 + 2.5));
+
+              // combine with different powers for varying thicknesses
+              float streaks = pow(streak1, 10.0) * 0.35 + pow(streak2, 15.0) * 0.35 + pow(streak3, 8.0) * 0.3;
+
+              // radial fade in/out variation (creates groups around the disc)
+              float radialVariation1 = sin(angle * 8.0) * 0.5 + 0.5;
+              float radialVariation2 = sin(angle * 12.0 + 2.0) * 0.5 + 0.5;
+              float radialVariation3 = sin(angle * 16.0 + 4.0) * 0.5 + 0.5;
+              float radialVariation4 = sin(angle * 20.0 + 6.0) * 0.5 + 0.5;
+
+              float radialModulation = radialVariation1 * 0.3 + radialVariation2 * 0.25 + radialVariation3 * 0.25 + radialVariation4 * 0.2;
+              radialModulation = pow(radialModulation, 2.5) * 0.9 + 0.1;
+
+              // fade out near center hole and outer edge
+              float radialFade = smoothstep(0.15, 0.22, radius) * smoothstep(0.5, 0.46, radius);
+              streaks *= radialFade * radialModulation;
+
+              finalColor += vec3(1.0) * streaks * 0.2;
+
+              // white outline on the edge
+              float outerEdge = smoothstep(0.48, 0.5, radius);
+              float innerEdge = smoothstep(0.5, 0.48, radius);
+              float edgeRing = outerEdge * innerEdge;
+              finalColor += vec3(1.0) * edgeRing * 0.7;
 
               gl_FragColor = vec4(finalColor, texColor.a);
             }
@@ -463,7 +484,7 @@ export function SpinningCDCase({
           const discFront = new THREE.Mesh(discGeometry, discMaterial);
           discFront.position.copy(caseCenter);
           discFront.position.x += caseSize.x * discOffsetX;
-          discFront.position.z += discThickness / 2;
+          discFront.position.z += discThickness / 2 + 0.003;
           model.add(discFront);
           visibleMeshes.push(discFront);
 
@@ -485,7 +506,7 @@ export function SpinningCDCase({
           );
           discBack.position.copy(caseCenter);
           discBack.position.x += caseSize.x * discOffsetX;
-          discBack.position.z -= discThickness / 2;
+          discBack.position.z -= discThickness / 2 - 0.003;
           discBack.rotation.y = Math.PI;
           model.add(discBack);
 
@@ -504,6 +525,7 @@ export function SpinningCDCase({
           const discEdge = new THREE.Mesh(edgeGeometry, edgeMat);
           discEdge.position.copy(caseCenter);
           discEdge.position.x += caseSize.x * discOffsetX;
+          discEdge.position.z += 0.003;
           discEdge.rotation.x = Math.PI / 2;
           model.add(discEdge);
 
@@ -518,7 +540,7 @@ export function SpinningCDCase({
           });
           const hole = new THREE.Mesh(holeGeometry, holeMaterial);
           hole.position.copy(discFront.position);
-          hole.position.z += 0.001;
+          hole.position.z -= 0.001;
           model.add(hole);
 
           const clearPlasticMat = new THREE.MeshPhysicalMaterial({

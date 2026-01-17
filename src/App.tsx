@@ -3,31 +3,31 @@ import { SpinningCDCase } from './components/SpinningCDCase';
 function App() {
   const albums = [
     {
-      image: '/image1.jpg',
+      image: '/clairo-v1.jpg',
       name: 'Lily',
       artist: 'Garden State',
       note: 'Reminds me of spring mornings in the countryside',
     },
     {
-      image: '/image2.jpg',
+      image: '/lamp-v1.jpg',
       name: 'Ocean Wave',
       artist: 'Coastal Drift',
       note: 'Best listened to with the windows down on a coastal drive',
     },
     {
-      image: '/image3.jpg',
+      image: '/nujabes-v1.jpg',
       name: 'Sunset Dreams',
       artist: 'Horizon',
       note: 'The perfect soundtrack for watching the sun go down',
     },
     {
-      image: '/image4.jpg',
+      image: '/themarias-v1.jpg',
       name: 'Midnight Jazz',
       artist: 'Blue Note Quartet',
       note: 'Late nights, dim lights, and a glass of wine',
     },
     {
-      image: '/image5.jpg',
+      image: '/menitrust-v1.jpg',
       name: 'Electric Pulse',
       artist: 'Voltage',
       note: 'Gets me through every workout session',
