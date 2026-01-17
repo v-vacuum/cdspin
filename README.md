@@ -1,4 +1,4 @@
-# cardspin
+# cd spin
 
 an interactive 3d cd jewel case portfolio featuring spinning albums with hover animations and custom shader effects.
 
