@@ -154,8 +154,12 @@ export function SpinningCDCase({
 
     const { discMaterials, textures } = sceneRef.current;
     discMaterials.forEach((mat) => {
-      mat.map = textures[targetIndex];
-      mat.needsUpdate = true;
+      if ((mat as THREE.ShaderMaterial).uniforms?.map) {
+        (mat as THREE.ShaderMaterial).uniforms.map.value = textures[targetIndex];
+      } else {
+        mat.map = textures[targetIndex];
+        mat.needsUpdate = true;
+      }
     });
 
     imageIndex.current = targetIndex;
@@ -376,10 +380,81 @@ export function SpinningCDCase({
             discRadius,
             64,
           );
-          const discMaterial = new THREE.MeshBasicMaterial({
-            color: 0xffffff,
+
+          // Custom shader for CD iridescence effect
+          const cdVertexShader = `
+            varying vec2 vUv;
+            varying vec3 vNormal;
+            varying vec3 vViewPosition;
+            varying vec3 vWorldPosition;
+
+            void main() {
+              vUv = uv;
+              vNormal = normalize(normalMatrix * normal);
+              vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+              vViewPosition = -mvPosition.xyz;
+              vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+              gl_Position = projectionMatrix * mvPosition;
+            }
+          `;
+
+          const cdFragmentShader = `
+            uniform sampler2D map;
+            uniform float time;
+            varying vec2 vUv;
+            varying vec3 vNormal;
+            varying vec3 vViewPosition;
+            varying vec3 vWorldPosition;
+
+            vec3 hsv2rgb(vec3 c) {
+              vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+              vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+              return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+            }
+
+            void main() {
+              vec4 texColor = texture2D(map, vUv);
+
+              // Calculate view direction
+              vec3 viewDir = normalize(vViewPosition);
+
+              // Use view direction to shift hue - creates rainbow when rotating
+              float viewAngle = atan(viewDir.x, viewDir.z);
+
+              // Fresnel for glancing angle enhancement
+              float fresnel = pow(1.0 - abs(dot(vNormal, viewDir)), 3.0);
+
+              // Rainbow as concentric bands radiating from center
+              vec2 centeredUv = vUv - 0.5;
+              float radius = length(centeredUv);
+              float hue = fract(radius * 4.0 + viewAngle * 0.3);
+              vec3 rainbow = hsv2rgb(vec3(hue, 0.7, 1.0));
+
+              // Subtle iridescence - reduced strength
+              float iridescenceStrength = fresnel * 0.25;
+
+              // Brighten the base texture
+              vec3 brightTexColor = texColor.rgb * 1.3;
+
+              // Mix brightened texture with rainbow
+              vec3 finalColor = mix(brightTexColor, rainbow, iridescenceStrength);
+
+              // Add white specular highlight - reduced
+              float sheen = pow(max(dot(reflect(-viewDir, vNormal), vec3(0.0, 0.0, 1.0)), 0.0), 16.0);
+              finalColor += vec3(1.0) * sheen * 0.12;
+
+              gl_FragColor = vec4(finalColor, texColor.a);
+            }
+          `;
+
+          const discMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+              map: { value: textures[0] },
+              time: { value: 0 },
+            },
+            vertexShader: cdVertexShader,
+            fragmentShader: cdFragmentShader,
             side: THREE.FrontSide,
-            map: textures[0],
           });
           discMaterials.push(
             discMaterial as unknown as THREE.MeshStandardMaterial,
@@ -392,10 +467,14 @@ export function SpinningCDCase({
           model.add(discFront);
           visibleMeshes.push(discFront);
 
-          const discBackMaterial = new THREE.MeshBasicMaterial({
-            color: 0xffffff,
+          const discBackMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+              map: { value: textures[0] },
+              time: { value: 0 },
+            },
+            vertexShader: cdVertexShader,
+            fragmentShader: cdFragmentShader,
             side: THREE.FrontSide,
-            map: textures[0],
           });
           discMaterials.push(
             discBackMaterial as unknown as THREE.MeshStandardMaterial,
@@ -580,8 +659,12 @@ export function SpinningCDCase({
 
         const { discMaterials, textures } = sceneRef.current!;
         discMaterials.forEach((mat) => {
-          mat.map = textures[targetIndex];
-          mat.needsUpdate = true;
+          if ((mat as THREE.ShaderMaterial).uniforms?.map) {
+            (mat as THREE.ShaderMaterial).uniforms.map.value = textures[targetIndex];
+          } else {
+            mat.map = textures[targetIndex];
+            mat.needsUpdate = true;
+          }
         });
 
         imageIndex.current = targetIndex;
@@ -738,8 +821,12 @@ export function SpinningCDCase({
 
               lastZone.current = currentZone;
               discMaterials.forEach((mat) => {
-                mat.map = textures[texIdx];
-                mat.needsUpdate = true;
+                if ((mat as THREE.ShaderMaterial).uniforms?.map) {
+                  (mat as THREE.ShaderMaterial).uniforms.map.value = textures[texIdx];
+                } else {
+                  mat.map = textures[texIdx];
+                  mat.needsUpdate = true;
+                }
               });
               setCurrentAlbumIndex(texIdx);
             }
@@ -769,8 +856,12 @@ export function SpinningCDCase({
 
               lastZone.current = currentZone;
               discMaterials.forEach((mat) => {
-                mat.map = textures[texIdx];
-                mat.needsUpdate = true;
+                if ((mat as THREE.ShaderMaterial).uniforms?.map) {
+                  (mat as THREE.ShaderMaterial).uniforms.map.value = textures[texIdx];
+                } else {
+                  mat.map = textures[texIdx];
+                  mat.needsUpdate = true;
+                }
               });
               setCurrentAlbumIndex(texIdx);
             }
@@ -816,6 +907,16 @@ export function SpinningCDCase({
       }
 
       model.updateMatrixWorld(true);
+
+      // Update time uniform for CD iridescence animation
+      if (sceneRef.current) {
+        const time = Date.now() * 0.001;
+        sceneRef.current.discMaterials.forEach((mat) => {
+          if ((mat as THREE.ShaderMaterial).uniforms?.time) {
+            (mat as THREE.ShaderMaterial).uniforms.time.value = time;
+          }
+        });
+      }
 
       renderer.render(scene, camera);
       rafId.current = requestAnimationFrame(animate);
