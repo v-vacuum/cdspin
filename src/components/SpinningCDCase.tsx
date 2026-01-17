@@ -86,7 +86,11 @@ export function SpinningCDCase({
     const audioContext = new AudioContext();
 
     const bufferSize = audioContext.sampleRate * 0.04;
-    const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+    const buffer = audioContext.createBuffer(
+      1,
+      bufferSize,
+      audioContext.sampleRate,
+    );
     const data = buffer.getChannelData(0);
 
     for (let i = 0; i < bufferSize; i++) {
@@ -109,77 +113,81 @@ export function SpinningCDCase({
 
   const pendingNavigationIndex = useRef<number | null>(null);
 
-  const navigateToAlbum = useCallback((targetIndex: number) => {
-    if (!sceneRef.current) return;
+  const navigateToAlbum = useCallback(
+    (targetIndex: number) => {
+      if (!sceneRef.current) return;
 
-    // If open, close first and queue the navigation
-    if (isOpen) {
-      pendingNavigationIndex.current = targetIndex;
-      handleClose();
-      return;
-    }
+      // If open, close first and queue the navigation
+      if (isOpen) {
+        pendingNavigationIndex.current = targetIndex;
+        handleClose();
+        return;
+      }
 
-    const len = albums.length;
-    const currentIdx = ((imageIndex.current % len) + len) % len;
-    if (targetIndex === currentIdx && !isNavigating.current) {
-      if (straightenProgress.current < 0.01) {
-        const normalizedRotation = ((rotation.current % 360) + 360) % 360;
-        let targetRot;
-        if (normalizedRotation <= 180) {
-          targetRot = rotation.current - normalizedRotation;
-        } else {
-          targetRot = rotation.current + (360 - normalizedRotation);
+      const len = albums.length;
+      const currentIdx = ((imageIndex.current % len) + len) % len;
+      if (targetIndex === currentIdx && !isNavigating.current) {
+        if (straightenProgress.current < 0.01) {
+          const normalizedRotation = ((rotation.current % 360) + 360) % 360;
+          let targetRot;
+          if (normalizedRotation <= 180) {
+            targetRot = rotation.current - normalizedRotation;
+          } else {
+            targetRot = rotation.current + (360 - normalizedRotation);
+          }
+
+          isNavigating.current = true;
+          targetRotationValue.current = targetRot;
+          const direction = targetRot >= rotation.current ? 1 : -1;
+          velocity.current = direction * 8;
+          lastInteractionTime.current = Date.now();
         }
-
-        isNavigating.current = true;
-        targetRotationValue.current = targetRot;
-        const direction = targetRot >= rotation.current ? 1 : -1;
-        velocity.current = direction * 8;
-        lastInteractionTime.current = Date.now();
+        return;
       }
-      return;
-    }
 
-    lastInteractionTime.current = Date.now();
-    isResumingFromIdle.current = false;
+      lastInteractionTime.current = Date.now();
+      isResumingFromIdle.current = false;
 
-    // Reset all ajar/tilt state when navigating
-    ajarProgress.current = 0;
-    targetAjarProgress.current = 0;
-    tiltUpProgress.current = 0;
-    targetTiltUpProgress.current = 0;
-    ajarSoundPlayed.current = false;
-    navigationLanded.current = false;
-    hoverStraightenStarted.current = false;
+      // Reset all ajar/tilt state when navigating
+      ajarProgress.current = 0;
+      targetAjarProgress.current = 0;
+      tiltUpProgress.current = 0;
+      targetTiltUpProgress.current = 0;
+      ajarSoundPlayed.current = false;
+      navigationLanded.current = false;
+      hoverStraightenStarted.current = false;
 
-    const { discMaterials, textures } = sceneRef.current;
-    discMaterials.forEach((mat) => {
-      if ((mat as THREE.ShaderMaterial).uniforms?.map) {
-        (mat as THREE.ShaderMaterial).uniforms.map.value = textures[targetIndex];
-      } else {
-        mat.map = textures[targetIndex];
-        mat.needsUpdate = true;
+      const { discMaterials, textures } = sceneRef.current;
+      discMaterials.forEach((mat) => {
+        if ((mat as THREE.ShaderMaterial).uniforms?.map) {
+          (mat as THREE.ShaderMaterial).uniforms.map.value =
+            textures[targetIndex];
+        } else {
+          mat.map = textures[targetIndex];
+          mat.needsUpdate = true;
+        }
+      });
+
+      imageIndex.current = targetIndex;
+      lastZone.current = Math.floor((rotation.current + 90) / 180);
+      setCurrentAlbumIndex(targetIndex);
+
+      if (straightenProgress.current > 0.01) {
+        rotation.current = 0;
+        savedRotation.current = 0;
+        straightenProgress.current = 0;
+        targetStraightenProgress.current = 0;
       }
-    });
 
-    imageIndex.current = targetIndex;
-    lastZone.current = Math.floor((rotation.current + 90) / 180);
-    setCurrentAlbumIndex(targetIndex);
+      const targetRot = Math.round((rotation.current + 360) / 360) * 360;
 
-    if (straightenProgress.current > 0.01) {
-      rotation.current = 0;
-      savedRotation.current = 0;
-      straightenProgress.current = 0;
-      targetStraightenProgress.current = 0;
-    }
-
-    const targetRot = Math.round((rotation.current + 360) / 360) * 360;
-
-    isNavigating.current = true;
-    targetRotationValue.current = targetRot;
-    const direction = targetRot >= rotation.current ? 1 : -1;
-    velocity.current = direction * 8;
-  }, [albums.length, isOpen, handleClose]);
+      isNavigating.current = true;
+      targetRotationValue.current = targetRot;
+      const direction = targetRot >= rotation.current ? 1 : -1;
+      velocity.current = direction * 8;
+    },
+    [albums.length, isOpen, handleClose],
+  );
 
   useEffect(() => {
     if (!containerRef.current || albums.length === 0) return;
@@ -664,7 +672,10 @@ export function SpinningCDCase({
       }
 
       // Handle pending navigation after close animation completes
-      if (pendingNavigationIndex.current !== null && openProgress.current < 0.05) {
+      if (
+        pendingNavigationIndex.current !== null &&
+        openProgress.current < 0.05
+      ) {
         const targetIndex = pendingNavigationIndex.current;
         pendingNavigationIndex.current = null;
 
@@ -682,7 +693,8 @@ export function SpinningCDCase({
         const { discMaterials, textures } = sceneRef.current!;
         discMaterials.forEach((mat) => {
           if ((mat as THREE.ShaderMaterial).uniforms?.map) {
-            (mat as THREE.ShaderMaterial).uniforms.map.value = textures[targetIndex];
+            (mat as THREE.ShaderMaterial).uniforms.map.value =
+              textures[targetIndex];
           } else {
             mat.map = textures[targetIndex];
             mat.needsUpdate = true;
@@ -784,17 +796,22 @@ export function SpinningCDCase({
       model.position.x = openProgress.current * 65;
 
       // Left tilt as part of straighten/tilt-up (left side away, right side toward user)
-      const leftTiltAngle = openProgress.current < 0.5 ? -tiltUpProgress.current * 0.55 : 0;
+      const leftTiltAngle =
+        openProgress.current < 0.5 ? -tiltUpProgress.current * 0.55 : 0;
       const bookTiltZ = 0;
 
       // Tilt up when hovering (more pronounced)
-      const tiltUpAngle = openProgress.current < 0.5 ? -tiltUpProgress.current * 0.22 : 0;
+      const tiltUpAngle =
+        openProgress.current < 0.5 ? -tiltUpProgress.current * 0.22 : 0;
       const bookTiltX = tiltUpAngle;
 
       const currentTilt = tilt * (1 - straightenProgress.current);
 
       // Handle velocity and rotation (but not while waiting for lid to close)
-      if (straightenProgress.current < 0.01 && pendingNavigationIndex.current === null) {
+      if (
+        straightenProgress.current < 0.01 &&
+        pendingNavigationIndex.current === null
+      ) {
         if (!isDragging.current) {
           if (isNavigating.current) {
             const targetRot = targetRotationValue.current;
@@ -844,7 +861,8 @@ export function SpinningCDCase({
               lastZone.current = currentZone;
               discMaterials.forEach((mat) => {
                 if ((mat as THREE.ShaderMaterial).uniforms?.map) {
-                  (mat as THREE.ShaderMaterial).uniforms.map.value = textures[texIdx];
+                  (mat as THREE.ShaderMaterial).uniforms.map.value =
+                    textures[texIdx];
                 } else {
                   mat.map = textures[texIdx];
                   mat.needsUpdate = true;
@@ -879,7 +897,8 @@ export function SpinningCDCase({
               lastZone.current = currentZone;
               discMaterials.forEach((mat) => {
                 if ((mat as THREE.ShaderMaterial).uniforms?.map) {
-                  (mat as THREE.ShaderMaterial).uniforms.map.value = textures[texIdx];
+                  (mat as THREE.ShaderMaterial).uniforms.map.value =
+                    textures[texIdx];
                 } else {
                   mat.map = textures[texIdx];
                   mat.needsUpdate = true;
@@ -905,7 +924,11 @@ export function SpinningCDCase({
         // Check for idle timeout (4 seconds for navigation, 5 seconds for hover)
         const now = Date.now();
         const idleTimeout = navigationLanded.current ? 4000 : 5000;
-        if (now - lastInteractionTime.current > idleTimeout && openProgress.current < 0.01 && !hoverStraightenStarted.current) {
+        if (
+          now - lastInteractionTime.current > idleTimeout &&
+          openProgress.current < 0.01 &&
+          !hoverStraightenStarted.current
+        ) {
           rotation.current = 0;
           savedRotation.current = 0;
           targetStraightenProgress.current = 0;
@@ -922,7 +945,8 @@ export function SpinningCDCase({
         // Straightening: interpolate rotation toward NEAREST front-facing position
         const nearestFront = Math.round(savedRotation.current / 180) * 180;
         const currentRotation =
-          savedRotation.current + (nearestFront - savedRotation.current) * straightenProgress.current;
+          savedRotation.current +
+          (nearestFront - savedRotation.current) * straightenProgress.current;
         const rotRad = (currentRotation * Math.PI) / 180 + leftTiltAngle;
         const tiltRad = (currentTilt * Math.PI) / 180;
         model.rotation.set(bookTiltX, rotRad, tiltRad - bookTiltZ);
@@ -1008,7 +1032,10 @@ export function SpinningCDCase({
     rotation.current += deltaX * sensitivity;
     startX.current = e.clientX;
     const maxVelocity = 25;
-    velocity.current = Math.max(-maxVelocity, Math.min(maxVelocity, deltaX * sensitivity));
+    velocity.current = Math.max(
+      -maxVelocity,
+      Math.min(maxVelocity, deltaX * sensitivity),
+    );
     lastInteractionTime.current = Date.now();
     isNavigating.current = false;
   };
@@ -1247,9 +1274,7 @@ export function SpinningCDCase({
               transition: "all 0.2s ease",
               background: currentAlbumIndex === index ? "#666" : "#fff",
               boxShadow:
-                currentAlbumIndex === index
-                  ? "none"
-                  : "inset 0 0 0 1px #999",
+                currentAlbumIndex === index ? "none" : "inset 0 0 0 1px #999",
             }}
             aria-label={`Go to album ${index + 1}`}
           />
@@ -1297,7 +1322,7 @@ export function SpinningCDCase({
                   marginTop: 8,
                 }}
               >
-                "{albums[currentAlbumIndex].note}"
+                {albums[currentAlbumIndex].note}
               </div>
             )}
           </div>
