@@ -36,7 +36,7 @@ export function SpinningCDCase({
   width = 200,
   height = 180,
   sensitivity = 0.5,
-  autoSpinSpeed = 0.3,
+  autoSpinSpeed = 0.8,
   tilt = 8,
 }: SpinningCDCaseProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -149,7 +149,7 @@ export function SpinningCDCase({
           isNavigating.current = true;
           targetRotationValue.current = targetRot;
           const direction = targetRot >= rotation.current ? 1 : -1;
-          velocity.current = direction * 8;
+          velocity.current = direction * 18;
           lastInteractionTime.current = Date.now();
         }
         return;
@@ -194,7 +194,7 @@ export function SpinningCDCase({
       isNavigating.current = true;
       targetRotationValue.current = targetRot;
       const direction = targetRot >= rotation.current ? 1 : -1;
-      velocity.current = direction * 8;
+      velocity.current = direction * 18;
     },
     [albums.length, isOpen, handleClose],
   );
@@ -724,7 +724,7 @@ export function SpinningCDCase({
         const targetRot = 360;
         isNavigating.current = true;
         targetRotationValue.current = targetRot;
-        velocity.current = 8;
+        velocity.current = 18;
         lastInteractionTime.current = Date.now();
       }
 
