@@ -2,6 +2,17 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
+function mapRotationToDisplay(rot: number): number {
+  // Continuous forward rotation with instant jump at edges
+  // At 90° (edge), instantly jump to -90° (same visual, other side)
+  // This makes the case appear to continuously spin in one direction
+  const norm = ((rot % 180) + 180) % 180;
+  if (norm <= 90) {
+    return norm;
+  }
+  return norm - 180;
+}
+
 interface Album {
   image: string;
   name: string;
@@ -908,10 +919,39 @@ export function SpinningCDCase({
           }
         }
 
+        // Check for zone changes during dragging (image switching at flip points)
+        if (isDragging.current) {
+          const currentZone = Math.floor((rotation.current + 90) / 180);
+          if (currentZone !== lastZone.current) {
+            const direction = currentZone > lastZone.current ? 1 : -1;
+            imageIndex.current += direction;
+
+            const len = textures.length;
+            const texIdx = ((imageIndex.current % len) + len) % len;
+
+            lastZone.current = currentZone;
+            discMaterials.forEach((mat) => {
+              const shaderMat = mat as unknown as THREE.ShaderMaterial;
+              if (shaderMat.uniforms?.map) {
+                shaderMat.uniforms.map.value = textures[texIdx];
+              } else {
+                mat.map = textures[texIdx];
+                mat.needsUpdate = true;
+              }
+            });
+            setCurrentAlbumIndex(texIdx);
+          }
+        }
+
         savedRotation.current = rotation.current;
 
-        const rotRad = (rotation.current * Math.PI) / 180 + leftTiltAngle;
-        const tiltRad = (currentTilt * Math.PI) / 180;
+        const displayRotation = mapRotationToDisplay(rotation.current);
+        const rotRad = (displayRotation * Math.PI) / 180 + leftTiltAngle;
+        // Flip tilt at edge jumps (90° and 270°) to maintain visual continuity
+        const internalNorm = ((rotation.current % 360) + 360) % 360;
+        const shouldFlipTilt = internalNorm > 90 && internalNorm <= 270;
+        const effectiveTilt = shouldFlipTilt ? -currentTilt : currentTilt;
+        const tiltRad = (effectiveTilt * Math.PI) / 180;
         model.rotation.set(bookTiltX, rotRad, tiltRad - bookTiltZ);
       } else {
         // Handle hover straightening
@@ -946,8 +986,13 @@ export function SpinningCDCase({
         const currentRotation =
           savedRotation.current +
           (nearestFront - savedRotation.current) * straightenProgress.current;
-        const rotRad = (currentRotation * Math.PI) / 180 + leftTiltAngle;
-        const tiltRad = (currentTilt * Math.PI) / 180;
+        const displayRotation = mapRotationToDisplay(currentRotation);
+        const rotRad = (displayRotation * Math.PI) / 180 + leftTiltAngle;
+        // Flip tilt at edge jumps (90° and 270°) to maintain visual continuity
+        const internalNorm = ((currentRotation % 360) + 360) % 360;
+        const shouldFlipTilt = internalNorm > 90 && internalNorm <= 270;
+        const effectiveTilt = shouldFlipTilt ? -currentTilt : currentTilt;
+        const tiltRad = (effectiveTilt * Math.PI) / 180;
         model.rotation.set(bookTiltX, rotRad, tiltRad - bookTiltZ);
       }
 
