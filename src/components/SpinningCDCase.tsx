@@ -919,6 +919,30 @@ export function SpinningCDCase({
           }
         }
 
+        // Check for zone changes during dragging (image switching at flip points)
+        if (isDragging.current) {
+          const currentZone = Math.floor((rotation.current + 90) / 180);
+          if (currentZone !== lastZone.current) {
+            const direction = currentZone > lastZone.current ? 1 : -1;
+            imageIndex.current += direction;
+
+            const len = textures.length;
+            const texIdx = ((imageIndex.current % len) + len) % len;
+
+            lastZone.current = currentZone;
+            discMaterials.forEach((mat) => {
+              const shaderMat = mat as unknown as THREE.ShaderMaterial;
+              if (shaderMat.uniforms?.map) {
+                shaderMat.uniforms.map.value = textures[texIdx];
+              } else {
+                mat.map = textures[texIdx];
+                mat.needsUpdate = true;
+              }
+            });
+            setCurrentAlbumIndex(texIdx);
+          }
+        }
+
         savedRotation.current = rotation.current;
 
         const displayRotation = mapRotationToDisplay(rotation.current);
