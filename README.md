@@ -2,6 +2,11 @@
 
 an interactive 3d cd jewel case portfolio featuring spinning albums with hover animations and custom shader effects.
 
+
+https://github.com/user-attachments/assets/a602c3c4-b782-4f90-aa3c-a69e0d641929
+
+
+
 ## features
 
 - **3d cd case rendering** - fully rendered cd jewel case using three.js with realistic lighting
