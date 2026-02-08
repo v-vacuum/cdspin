@@ -1,6 +1,8 @@
-# cd spin
+# spinning-cd-case
 
-an interactive 3d cd jewel case portfolio featuring spinning albums with hover animations and custom shader effects.
+an interactive 3d cd jewel case react component featuring spinning albums with hover animations and custom shader effects.
+
+[![npm version](https://img.shields.io/npm/v/spinning-cd-case)](https://www.npmjs.com/package/spinning-cd-case)
 
 
 https://github.com/user-attachments/assets/a602c3c4-b782-4f90-aa3c-a69e0d641929
@@ -13,53 +15,75 @@ https://github.com/user-attachments/assets/a602c3c4-b782-4f90-aa3c-a69e0d641929
 - **interactive album browsing** - drag to spin, click to open, hover for animations
 - **custom cd shader** - glsl shaders for realistic iridescent cd surface with groove patterns
 - **smooth animations** - auto-rotation, momentum-based dragging, case opening mechanics
-- **album metadata** - display album name, artist, and personal notes
+- **album metadata** - display album name, artist, year, genre, and personal notes
 - **audio feedback** - procedurally generated click sounds for interactions
 
-## tech stack
-
-- react 18
-- three.js (3d rendering)
-- typescript
-- vite
-- glsl (custom shaders)
-
-## setup
+## install
 
 ```bash
-npm install
-npm run dev
+npm install spinning-cd-case
 ```
 
-## scripts
+peer dependencies: `react`, `react-dom`, and `three` (must be installed in your project).
 
-- `npm run dev` - start development server
-- `npm run build` - build for production
-- `npm run preview` - preview production build
-- `npm run lint` - run eslint
-
-## adding albums
-
-edit the `albums` array in `src/App.tsx`:
+## usage
 
 ```typescript
+import { SpinningCDCase, Album } from 'spinning-cd-case';
+
 const albums: Album[] = [
   {
     image: '/your-album-art.jpg',
     name: 'album name',
     artist: 'artist name',
+    year: 2024,
+    genre: 'genre',
     note: 'personal note about the album'
   },
-  // add more albums...
 ];
+
+function App() {
+  return (
+    <SpinningCDCase
+      albums={albums}
+      width={200}           // canvas width
+      height={180}          // canvas height
+      sensitivity={0.5}     // drag sensitivity
+      autoSpinSpeed={0.8}   // auto-rotation speed
+      tilt={8}              // case tilt angle (degrees)
+    />
+  );
+}
 ```
 
-place album artwork in the `public/` directory.
+## props
+
+| prop | type | default | description |
+|------|------|---------|-------------|
+| `albums` | `Album[]` | required | array of albums to display |
+| `width` | `number` | `200` | canvas width in pixels |
+| `height` | `number` | `180` | canvas height in pixels |
+| `sensitivity` | `number` | `0.5` | drag sensitivity |
+| `autoSpinSpeed` | `number` | `0.8` | auto-rotation speed |
+| `tilt` | `number` | `8` | case tilt angle in degrees |
+
+### `Album` type
+
+```typescript
+interface Album {
+  image: string;
+  name: string;
+  artist?: string;
+  year?: string | number;
+  genre?: string;
+  note?: string;
+}
+```
 
 ## how it works
 
 ### 3d model
-the cd case uses a custom `.glb` model (`cd_jewelcase_double.glb`) with the following structure:
+the cd case uses a custom `.glb` model with the following structure:
 - case base
 - lid that opens
 - cd disc with custom shader material
@@ -80,42 +104,20 @@ custom glsl shaders create the cd iridescence effect:
 - concentric circular grooves with varying thickness
 - viewing angle-dependent coloring
 
-### lighting setup
+## local development
 
-multiple directional lights positioned for optimal cd reflection:
-- main light (front-right)
-- back, front, side, rim, and top lights
-- ambient light for base illumination
-- point light for highlights
-- aces filmic tone mapping
-
-## customization
-
-adjust component props in `src/App.tsx`:
-
-```typescript
-<SpinningCDCase
-  albums={albums}
-  width={200}           // canvas width
-  height={180}          // canvas height
-  sensitivity={0.5}     // drag sensitivity
-  autoSpinSpeed={0.3}   // auto-rotation speed
-  tilt={8}              // case tilt angle (degrees)
-/>
+```bash
+npm install
+npm run dev
 ```
 
-## component architecture
+### scripts
 
-```
-App.tsx
-└── SpinningCDCase.tsx
-    ├── three.js scene setup
-    ├── gltf model loading
-    ├── texture management
-    ├── pointer event handling
-    ├── animation loop
-    └── custom shader materials
-```
+- `npm run dev` - start development server
+- `npm run build` - build for production
+- `npm run build:lib` - build the library for npm
+- `npm run preview` - preview production build
+- `npm run lint` - run eslint
 
 ## browser support
 
