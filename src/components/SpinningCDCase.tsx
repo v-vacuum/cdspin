@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import modelUrl from "../assets/cd_jewelcase_double.glb?url";
 
 function mapRotationToDisplay(rot: number): number {
   // Continuous forward rotation with instant jump at edges
@@ -13,7 +14,7 @@ function mapRotationToDisplay(rot: number): number {
   return norm - 180;
 }
 
-interface Album {
+export interface Album {
   image: string;
   name: string;
   artist?: string;
@@ -22,7 +23,7 @@ interface Album {
   note?: string;
 }
 
-interface SpinningCDCaseProps {
+export interface SpinningCDCaseProps {
   albums: Album[];
   width?: number;
   height?: number;
@@ -272,7 +273,7 @@ export function SpinningCDCase({
     Promise.all([
       new Promise<THREE.Group>((resolve, reject) => {
         gltfLoader.load(
-          "/cd_jewelcase_double.glb",
+          modelUrl,
           (gltf) => resolve(gltf.scene),
           undefined,
           reject,
@@ -285,32 +286,16 @@ export function SpinningCDCase({
         textures = loadedTextures;
 
         const meshes: { mesh: THREE.Mesh; size: number; name: string }[] = [];
-        console.log("=== MODEL DEBUG ===");
         model.traverse((child) => {
-          console.log(
-            "Object:",
-            child.name,
-            "Type:",
-            child.type,
-            "Parent:",
-            child.parent?.name,
-          );
           if (child instanceof THREE.Mesh) {
             const box = new THREE.Box3().setFromObject(child);
             const size = box.getSize(new THREE.Vector3()).length();
             meshes.push({ mesh: child, size, name: child.name });
-            console.log("  -> MESH:", child.name, "size:", size);
           }
-        });
-
-        console.log("=== TOTAL MESHES:", meshes.length, "===");
-        meshes.forEach((m, i) => {
-          console.log(`Mesh ${i}: "${m.name}" size: ${m.size.toFixed(4)}`);
         });
 
         meshes.sort((a, b) => b.size - a.size);
         if (meshes.length > 1) {
-          console.log("Hiding largest mesh (backdrop):", meshes[0].name);
           meshes[0].mesh.visible = false;
         }
 
@@ -326,8 +311,6 @@ export function SpinningCDCase({
         wrapper.add(model);
         wrapper.scale.set(450, 450, 450);
 
-        console.log("Model structure:");
-
         const visibleMeshes: THREE.Mesh[] = [];
         model.traverse((child) => {
           if (
@@ -336,12 +319,10 @@ export function SpinningCDCase({
             child.name.toLowerCase().includes("lid")
           ) {
             frontCover = child;
-            console.log("Found front cover:", child.name);
           }
 
           if (child instanceof THREE.Mesh && child.visible) {
             const mesh = child as THREE.Mesh;
-            console.log("Making transparent:", child.name);
             visibleMeshes.push(mesh);
 
             const transparentMaterial = new THREE.MeshPhysicalMaterial({
@@ -377,8 +358,6 @@ export function SpinningCDCase({
             mesh.parent?.add(edgeLines);
           }
         });
-        console.log("Visible meshes for raycasting:", visibleMeshes.length);
-
         if (cdCaseMesh) {
           const caseBox = new THREE.Box3().setFromObject(cdCaseMesh);
           const caseCenter = caseBox.getCenter(new THREE.Vector3());
